@@ -1,0 +1,8 @@
+/lerobot-go
+/go-lerobot
+/lerobot-ds
+*.test
+.DS_Store
+out/
+testdata/output/
+.tmp/

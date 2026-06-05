@@ -1,0 +1,61 @@
+# Multi-platform CLI release on version tags.
+#
+# Industry standard for Go CLIs: GoReleaser cross-compiles (linux/darwin/windows ×
+# amd64/arm64), attaches archives + checksums to a GitHub Release, and injects version
+# via ldflags. Push a semver tag to publish:
+#
+#   git tag v0.2.0
+#   git push origin v0.2.0
+#
+# Module consumers get the library via the public Go module proxy (pkg.go.dev) on tag;
+# CLI users download binaries from the GitHub Release page.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    # Tag releases need write to create GitHub Release + upload assets.
+    # PR snapshot builds only need read (default).
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Required for changelog generation and tag-aware versioning.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # PR: dry-run snapshot build (no Release created, catches config regressions).
+      - name: GoReleaser snapshot (PR)
+        if: github.event_name == 'pull_request'
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tag push: publish GitHub Release with per-platform archives.
+      - name: GoReleaser release (tag)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

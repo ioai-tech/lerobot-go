@@ -1,0 +1,79 @@
+name: Bug Report
+description: Report a bug in lerobot-go
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please include as much detail as possible.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug.
+      placeholder: Describe what you expected vs what actually happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Commands, code snippets, or dataset layout that trigger the issue.
+      placeholder: |
+        1. lerobot-go validate ./dataset
+        2. ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: lerobot_version
+    attributes:
+      label: LeRobot dataset version
+      options:
+        - v2.1
+        - v3.0
+        - Both / conversion between versions
+        - Unknown
+    validations:
+      required: true
+
+  - type: input
+    id: cli_version
+    attributes:
+      label: lerobot-go version
+      description: Output of `lerobot-go version`, or `dev` if built from source.
+      placeholder: e.g. v0.2.0 or dev
+
+  - type: input
+    id: go_version
+    attributes:
+      label: Go version
+      placeholder: e.g. go1.26.4
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or output
+      description: Paste CLI output, stack traces, or validation errors.
+      render: shell
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true

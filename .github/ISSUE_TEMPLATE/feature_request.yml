@@ -1,0 +1,55 @@
+name: Feature Request
+description: Suggest an enhancement for lerobot-go
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem you are trying to solve and how lerobot-go could help.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What workflow or integration is difficult today?
+      placeholder: e.g. I need to convert MCAP recordings to LeRobot v3.0 in a streaming pipeline.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like this to work in the CLI or Go API?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: lerobot_version
+    attributes:
+      label: Target LeRobot version(s)
+      options:
+        - v2.1
+        - v3.0
+        - Both
+        - Not version-specific
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - CLI
+        - Go library (lerobot package)
+        - Documentation
+        - CI / release
+        - Other
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this feature.
+          required: false
