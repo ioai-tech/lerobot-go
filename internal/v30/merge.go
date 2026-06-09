@@ -3,6 +3,10 @@ package v30
 import (
 	"context"
 	"fmt"
+	"os"
+	"runtime"
+	"strconv"
+	"sync"
 
 	"path/filepath"
 
@@ -22,6 +26,7 @@ type MergeConfig struct {
 	Features        map[string]meta.FeatureSpec
 	Locator         video.Locator
 	Stats           stats.Options
+	MaxWorkers      int
 	DataFileSizeMB  int
 	VideoFileSizeMB int
 }
@@ -111,11 +116,20 @@ func Merge(ctx context.Context, cfg MergeConfig) error {
 	}
 	st.flushDataBatch()
 	st.flushVideoBatches()
-	if err := st.writeDataBatches(ctx, cfg.OutputRoot); err != nil {
+	workers := mergeWorkers(cfg)
+	if err := st.writeDataBatches(ctx, cfg.OutputRoot, workers); err != nil {
 		return err
 	}
 	if err := st.writeVideoBatches(ctx, cfg); err != nil {
 		return err
+	}
+	if hasVideoFeatures(cfg.Features) {
+		for _, vk := range requiredVideoKeys(cfg.Features) {
+			vs := st.videoState[vk]
+			if vs == nil || len(vs.batches) == 0 {
+				return fmt.Errorf("merge produced no video batches for feature %q", vk)
+			}
+		}
 	}
 	if err := parquetx.WriteTasksParquet(cfg.OutputRoot, st.taskMap); err != nil {
 		return err
@@ -131,10 +145,29 @@ func Merge(ctx context.Context, cfg MergeConfig) error {
 	if err := meta.UpdateVideoFeaturesInfo(ctx, &st.info, cfg.OutputRoot, cfg.Locator); err != nil {
 		return err
 	}
+	if err := ValidateOutputIntegrity(cfg.OutputRoot, cfg.Features); err != nil {
+		return fmt.Errorf("merged output integrity: %w", err)
+	}
 	return meta.WriteInfo(cfg.OutputRoot, st.info)
 }
 
 func (st *mergeState) ingestEpisode(ctx context.Context, cfg MergeConfig, dir string, ep manifest.Episode) error {
+	if hasVideoFeatures(cfg.Features) {
+		for _, vk := range requiredVideoKeys(cfg.Features) {
+			rel, ok := ep.Videos[vk]
+			if !ok || rel == "" {
+				return fmt.Errorf("episode %d missing staged video for feature %q", ep.EpisodeIndex, vk)
+			}
+			src := manifest.StagingMediaPath(dir, rel)
+			fi, err := os.Stat(src)
+			if err != nil {
+				return fmt.Errorf("episode %d video %q missing file: %w", ep.EpisodeIndex, vk, err)
+			}
+			if fi.Size() == 0 {
+				return fmt.Errorf("episode %d video %q empty file", ep.EpisodeIndex, vk)
+			}
+		}
+	}
 	srcPQ := filepath.Join(dir, ep.FramesParquet)
 	srcSizeMB, err := meta.ParquetUncompressedSizeMB(srcPQ)
 	if err != nil {
@@ -164,7 +197,7 @@ func (st *mergeState) ingestEpisode(ctx context.Context, cfg MergeConfig, dir st
 	}
 	for videoKey, rel := range ep.Videos {
 		vs := st.ensureVideoState(videoKey)
-		src := filepath.Join(dir, rel)
+		src := manifest.StagingMediaPath(dir, rel)
 		segSizeMB, err := video.FileSizeMB(src)
 		if err != nil {
 			return err
@@ -215,10 +248,27 @@ func (st *mergeState) maybeRotateDataBatch(srcSizeMB float64) {
 	if len(st.dataBatch.entries) == 0 {
 		return
 	}
+	if streamingMergeEpisodeLimit() > 0 && len(st.dataBatch.entries) >= streamingMergeEpisodeLimit() {
+		st.flushDataBatch()
+		st.advanceDataBatch()
+		return
+	}
 	if st.dataBatch.sizeMB+srcSizeMB >= float64(st.info.DataFilesSizeInMB) {
 		st.flushDataBatch()
 		st.advanceDataBatch()
 	}
+}
+
+func streamingMergeEpisodeLimit() int {
+	v := os.Getenv("LEROBOT_MERGE_EPISODES_PER_FILE")
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 func (st *mergeState) flushDataBatch() {
@@ -278,26 +328,111 @@ func (st *mergeState) flushVideoBatches() {
 	}
 }
 
-func (st *mergeState) writeDataBatches(ctx context.Context, outputRoot string) error {
+func mergeWorkers(cfg MergeConfig) int {
+	if cfg.MaxWorkers > 0 {
+		return cfg.MaxWorkers
+	}
+	return max(1, runtime.NumCPU()-2)
+}
+
+func (st *mergeState) writeDataBatches(ctx context.Context, outputRoot string, workers int) error {
+	if len(st.dataBatches) == 0 {
+		return nil
+	}
+	if workers <= 1 || len(st.dataBatches) == 1 {
+		for _, batch := range st.dataBatches {
+			dst := filepath.Join(outputRoot, meta.DataPath(batch.chunk, batch.file))
+			if err := parquetx.WriteEpisodeBatch(ctx, dst, batch.entries); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(st.dataBatches))
 	for _, batch := range st.dataBatches {
-		dst := filepath.Join(outputRoot, meta.DataPath(batch.chunk, batch.file))
-		if err := parquetx.WriteEpisodeBatch(ctx, dst, batch.entries); err != nil {
+		batch := batch
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			dst := filepath.Join(outputRoot, meta.DataPath(batch.chunk, batch.file))
+			if err := parquetx.WriteEpisodeBatch(ctx, dst, batch.entries); err != nil {
+				errCh <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+type videoBatchJob struct {
+	locator video.Locator
+	dst     string
+	segments []string
+}
+
 func (st *mergeState) writeVideoBatches(ctx context.Context, cfg MergeConfig) error {
+	workers := mergeWorkers(cfg)
+	var jobs []videoBatchJob
 	for _, state := range st.videoState {
 		for _, batch := range state.batches {
-			dst := filepath.Join(cfg.OutputRoot, meta.VideoPath(batch.key, batch.chunk, batch.file))
-			if err := video.SafeConcat(ctx, cfg.Locator, batch.segmentPath, dst, true); err != nil {
+			jobs = append(jobs, videoBatchJob{
+				locator:  cfg.Locator,
+				dst:      filepath.Join(cfg.OutputRoot, meta.VideoPath(batch.key, batch.chunk, batch.file)),
+				segments: batch.segmentPath,
+			})
+		}
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+	if workers <= 1 || len(jobs) == 1 {
+		for _, job := range jobs {
+			if err := video.SafeConcat(ctx, job.locator, job.segments, job.dst, true); err != nil {
 				return err
 			}
 		}
+		return nil
+	}
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	errCh := make(chan error, len(jobs))
+	for _, job := range jobs {
+		job := job
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if err := video.SafeConcat(ctx, job.locator, job.segments, job.dst, true); err != nil {
+				errCh <- err
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func hasVideoFeatures(features map[string]meta.FeatureSpec) bool {

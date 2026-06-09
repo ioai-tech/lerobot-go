@@ -93,11 +93,59 @@ func computeImageFeatureStats(imgs [][][][]uint8, sampleCount int) FeatureStats 
 }
 
 func computeVectorStats(vals any, shape []int) FeatureStats {
-	flat := flattenRows(vals)
+	flat := sanitizeFlatRows(flattenRows(vals))
 	if len(flat) == 0 {
 		return FeatureStats{"count": []int64{0}}
 	}
 	return computeFlatStats(flat, len(flat))
+}
+
+func finiteFloat(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0
+	}
+	return v
+}
+
+func finiteFloatSlice(in []float64) []float64 {
+	out := make([]float64, len(in))
+	for i, v := range in {
+		out[i] = finiteFloat(v)
+	}
+	return out
+}
+
+func sanitizeFlatRows(flat [][]float64) [][]float64 {
+	for i, row := range flat {
+		for j, v := range row {
+			flat[i][j] = finiteFloat(v)
+		}
+	}
+	return flat
+}
+
+func sanitizeFeatureStats(fs FeatureStats) FeatureStats {
+	out := make(FeatureStats, len(fs))
+	for k, v := range fs {
+		switch x := v.(type) {
+		case []float64:
+			out[k] = finiteFloatSlice(x)
+		case ImageStat311:
+			out[k] = ImageStat311FromChannels(finiteFloatSlice(x.Channels()))
+		default:
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// SanitizeEpisodeStats replaces non-finite floats so JSON encoding succeeds.
+func SanitizeEpisodeStats(ep EpisodeStats) EpisodeStats {
+	out := make(EpisodeStats, len(ep))
+	for key, fs := range ep {
+		out[key] = sanitizeFeatureStats(fs)
+	}
+	return out
 }
 
 func computeFlatStats(flat [][]float64, sampleCount int) FeatureStats {
@@ -126,18 +174,20 @@ func computeFlatStats(flat [][]float64, sampleCount int) FeatureStats {
 	mean := make([]float64, dim)
 	std := make([]float64, dim)
 	for i := range mean {
-		mean[i] = sum[i] / count
+		mean[i] = finiteFloat(sum[i] / count)
 		variance := sumSq[i]/count - mean[i]*mean[i]
-		if variance < 0 {
+		if variance < 0 || math.IsNaN(variance) || math.IsInf(variance, 0) {
 			variance = 0
 		}
-		std[i] = math.Sqrt(variance)
+		std[i] = finiteFloat(math.Sqrt(variance))
+		min[i] = finiteFloat(min[i])
+		max[i] = finiteFloat(max[i])
 	}
 	result := FeatureStats{
-		"min":   append([]float64(nil), min...),
-		"max":   append([]float64(nil), max...),
-		"mean":  append([]float64(nil), mean...),
-		"std":   append([]float64(nil), std...),
+		"min":   finiteFloatSlice(min),
+		"max":   finiteFloatSlice(max),
+		"mean":  finiteFloatSlice(mean),
+		"std":   finiteFloatSlice(std),
 		"count": []int64{int64(sampleCount)},
 	}
 	if len(flat) < 2 {
@@ -378,13 +428,18 @@ func aggregateFeature(parts []FeatureStats) map[string]any {
 	}
 	mean := make([]float64, dim)
 	std := make([]float64, dim)
+	if totalCount <= 0 {
+		return sanitizeFeatureStats(parts[0])
+	}
 	for j := range mean {
-		mean[j] = weightedMean[j] / totalCount
+		mean[j] = finiteFloat(weightedMean[j] / totalCount)
 		variance := weightedVar[j]/totalCount - mean[j]*mean[j]
-		if variance < 0 {
+		if variance < 0 || math.IsNaN(variance) || math.IsInf(variance, 0) {
 			variance = 0
 		}
-		std[j] = math.Sqrt(variance)
+		std[j] = finiteFloat(math.Sqrt(variance))
+		min[j] = finiteFloat(min[j])
+		max[j] = finiteFloat(max[j])
 	}
 	isImage := isImageStat(parts[0]["mean"])
 	result := map[string]any{
@@ -417,7 +472,7 @@ func aggregateFeature(parts []FeatureStats) map[string]any {
 			}
 		}
 		for j := range qvals {
-			qvals[j] /= totalCount
+			qvals[j] = finiteFloat(qvals[j] / totalCount)
 		}
 		if isImage {
 			result[key] = ImageStat311FromChannels(qvals)

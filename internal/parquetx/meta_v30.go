@@ -13,6 +13,7 @@ import (
 )
 
 // WriteTasksParquet writes meta/tasks.parquet compatible with lerobot load_tasks().
+// Task strings are stored as the pandas index column named "task".
 func WriteTasksParquet(root string, taskMap map[string]int) error {
 	if len(taskMap) == 0 {
 		return nil
@@ -41,10 +42,14 @@ func WriteTasksParquet(root string, taskMap map[string]int) error {
 	defer taskArr.Release()
 	defer idxArr.Release()
 
+	pandasMD := arrow.NewMetadata(
+		[]string{"pandas"},
+		[]string{`{"index_columns": ["task"], "column_indexes": [{"name": null, "field_name": null, "pandas_type": "unicode", "numpy_type": "object", "metadata": {"encoding": "UTF-8"}}], "columns": [{"name": "task_index", "field_name": "task_index", "pandas_type": "int64", "numpy_type": "int64", "metadata": null}, {"name": "task", "field_name": "task", "pandas_type": "unicode", "numpy_type": "object", "metadata": null}], "attributes": {}, "pandas_version": "2.3.3"}`},
+	)
 	schema := arrow.NewSchema([]arrow.Field{
 		{Name: "task_index", Type: arrow.PrimitiveTypes.Int64, Nullable: true},
 		{Name: "task", Type: arrow.BinaryTypes.String, Nullable: true},
-	}, nil)
+	}, &pandasMD)
 	cols := []arrow.Column{
 		*arrow.NewColumn(schema.Field(0), arrow.NewChunked(schema.Field(0).Type, []arrow.Array{idxArr})),
 		*arrow.NewColumn(schema.Field(1), arrow.NewChunked(schema.Field(1).Type, []arrow.Array{taskArr})),

@@ -72,6 +72,25 @@ func (b *EpisodeBuffer) Columns(globalIndex int64, taskIndices []int64) map[stri
 	return out
 }
 
+func (b *EpisodeBuffer) ColumnsWithFrameStart(globalIndex, frameStart int64, taskIndices []int64) map[string]any {
+	out := b.Columns(globalIndex, taskIndices)
+	frameIdx := make([]int64, b.size)
+	timestamps := make([]float32, b.size)
+	for i := range frameIdx {
+		frameIdx[i] = frameStart + int64(i)
+		timestamps[i] = float32(frameStart+int64(i)) / float32(b.FPS)
+	}
+	out["frame_index"] = frameIdx
+	out["timestamp"] = timestamps
+	return out
+}
+
+func (b *EpisodeBuffer) Reset() {
+	b.columns = make(map[string]any)
+	b.tasks = nil
+	b.size = 0
+}
+
 func isScalarShape(shape []int) bool {
 	return len(shape) == 0 || (len(shape) == 1 && shape[0] == 1)
 }
@@ -143,21 +162,21 @@ func appendFloat32Row(b *EpisodeBuffer, key string, row []float32) {
 	if _, ok := b.columns[key]; !ok {
 		b.columns[key] = [][]float32{}
 	}
-	b.columns[key] = append(b.columns[key].([][]float32), row)
+	b.columns[key] = append(b.columns[key].([][]float32), append([]float32(nil), row...))
 }
 
 func appendFloat64Row(b *EpisodeBuffer, key string, row []float64) {
 	if _, ok := b.columns[key]; !ok {
 		b.columns[key] = [][]float64{}
 	}
-	b.columns[key] = append(b.columns[key].([][]float64), row)
+	b.columns[key] = append(b.columns[key].([][]float64), append([]float64(nil), row...))
 }
 
 func appendInt64Row(b *EpisodeBuffer, key string, row []int64) {
 	if _, ok := b.columns[key]; !ok {
 		b.columns[key] = [][]int64{}
 	}
-	b.columns[key] = append(b.columns[key].([][]int64), row)
+	b.columns[key] = append(b.columns[key].([][]int64), append([]int64(nil), row...))
 }
 
 func appendFloat64(b *EpisodeBuffer, key string, val float64) {
@@ -170,7 +189,7 @@ func appendFloat64(b *EpisodeBuffer, key string, val float64) {
 func toFloat32Row(val any) ([]float32, bool) {
 	switch v := val.(type) {
 	case []float32:
-		return v, true
+		return append([]float32(nil), v...), true
 	case []float64:
 		out := make([]float32, len(v))
 		for i, x := range v {
