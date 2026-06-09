@@ -77,6 +77,14 @@ func (w *AppendWriter) WriteEpisodeColumns(columns map[string]any, length int, f
 	return w.writer.Write(rec)
 }
 
+func (w *AppendWriter) WriteRecordColumns(columns map[string]any, length int, features map[string]meta.FeatureSpec) error {
+	return w.WriteEpisodeColumns(columns, length, features)
+}
+
+func (w *AppendWriter) WriteTable(tbl arrow.Table, chunkSize int64) error {
+	return w.writer.WriteTable(tbl, chunkSize)
+}
+
 func (w *AppendWriter) Close() error {
 	if w.writer != nil {
 		err := w.writer.Close()

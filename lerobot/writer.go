@@ -22,6 +22,8 @@ type Dataset interface {
 // StagingWriter records one episode into a single ep_NNNNNN directory.
 type StagingWriter interface {
 	AddFrame(ctx context.Context, frame Frame) error
+	SetH264Remux(ctx context.Context, tracks map[string][][]byte) error
+	AppendRGBVideoFrame(ctx context.Context, key string, frame VideoFrameRGB24) error
 	SaveEpisode(ctx context.Context) (*EpisodeManifest, error)
 	Close() error
 }
@@ -36,6 +38,8 @@ type EpisodeManifest struct {
 
 type episodeBackend interface {
 	AddFrame(ctx context.Context, frame map[string]any) error
+	SetH264Remux(ctx context.Context, tracks map[string][][]byte) error
+	AppendRGBVideoFrame(ctx context.Context, key string, frame video.VideoFrameRGB24) error
 	SaveEpisode(ctx context.Context) (manifest.Episode, error)
 	Close() error
 }
@@ -47,6 +51,14 @@ type stagingWrapper struct {
 
 func (s *stagingWrapper) AddFrame(ctx context.Context, frame Frame) error {
 	return s.backend.AddFrame(ctx, frame.toMap())
+}
+
+func (s *stagingWrapper) SetH264Remux(ctx context.Context, tracks map[string][][]byte) error {
+	return s.backend.SetH264Remux(ctx, tracks)
+}
+
+func (s *stagingWrapper) AppendRGBVideoFrame(ctx context.Context, key string, frame VideoFrameRGB24) error {
+	return s.backend.AppendRGBVideoFrame(ctx, key, frame)
 }
 
 func (s *stagingWrapper) SaveEpisode(ctx context.Context) (*EpisodeManifest, error) {
@@ -80,6 +92,7 @@ func NewStagingWriter(ctx context.Context, cfg StagingConfig) (StagingWriter, er
 		w, err := v21.NewStagingWriter(v21.StagingConfig{
 			Dir: cfg.Dir, TempRoot: cfg.TempRoot, Episode: cfg.Episode, FPS: cfg.FPS, Features: cfg.Features,
 			Locator: locator, VCodec: cfg.VCodec, CRF: cfg.CRF, UseVideos: cfg.UseVideos, Stats: cfg.Stats.toOptions(),
+			H264Remux: cfg.H264Remux,
 		})
 		if err != nil {
 			return nil, err
@@ -89,6 +102,7 @@ func NewStagingWriter(ctx context.Context, cfg StagingConfig) (StagingWriter, er
 		w, err := v30.NewStagingWriter(v30.StagingConfig{
 			Dir: cfg.Dir, TempRoot: cfg.TempRoot, Episode: cfg.Episode, FPS: cfg.FPS, Features: cfg.Features,
 			Locator: locator, VCodec: cfg.VCodec, CRF: cfg.CRF, UseVideos: cfg.UseVideos, Streaming: cfg.Streaming, Stats: cfg.Stats.toOptions(),
+			H264Remux: cfg.H264Remux,
 		})
 		if err != nil {
 			return nil, err
@@ -185,6 +199,11 @@ func (d *serialDataset) Finalize(ctx context.Context) error {
 
 func (d *serialDataset) Root() string { return d.root }
 
+// ValidateOutputIntegrity checks merged dataset has data parquet and video files.
+func ValidateOutputIntegrity(root string, features map[string]FeatureSpec) error {
+	return v30.ValidateOutputIntegrity(root, features)
+}
+
 // Merge finalizes completed staging episodes into the official on-disk layout.
 func Merge(ctx context.Context, cfg MergeConfig) error {
 	if cfg.Version == VersionUnset {
@@ -202,7 +221,7 @@ func Merge(ctx context.Context, cfg MergeConfig) error {
 		return v30.Merge(ctx, v30.MergeConfig{
 			StagingRoot: cfg.StagingRoot, OutputRoot: cfg.OutputRoot,
 			RobotType: cfg.RobotType, FPS: cfg.FPS, Features: cfg.Features,
-			Locator: locator, Stats: cfg.Stats.toOptions(),
+			Locator: locator, Stats: cfg.Stats.toOptions(), MaxWorkers: cfg.MaxWorkers,
 		})
 	}
 }

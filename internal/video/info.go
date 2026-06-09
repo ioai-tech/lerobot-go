@@ -15,17 +15,46 @@ type ffprobeOutput struct {
 }
 
 type ffprobeStream struct {
-	CodecType     string `json:"codec_type"`
-	CodecName     string `json:"codec_name"`
-	Width         int    `json:"width"`
-	Height        int    `json:"height"`
-	PixFmt        string `json:"pix_fmt"`
-	RFrameRate    string `json:"r_frame_rate"`
-	Channels      int    `json:"channels"`
-	BitRate       string `json:"bit_rate"`
-	SampleRate    string `json:"sample_rate"`
-	BitsPerSample int    `json:"bits_per_raw_sample"`
-	ChannelLayout string `json:"channel_layout"`
+	CodecType     string     `json:"codec_type"`
+	CodecName     string     `json:"codec_name"`
+	Width         int        `json:"width"`
+	Height        int        `json:"height"`
+	PixFmt        string     `json:"pix_fmt"`
+	RFrameRate    string     `json:"r_frame_rate"`
+	Channels      int        `json:"channels"`
+	BitRate       string     `json:"bit_rate"`
+	SampleRate    string     `json:"sample_rate"`
+	BitsPerSample ffprobeInt `json:"bits_per_raw_sample"`
+	ChannelLayout string     `json:"channel_layout"`
+}
+
+// ffprobeInt accepts ffprobe numeric fields encoded as JSON numbers or strings.
+type ffprobeInt int
+
+func (f *ffprobeInt) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*f = 0
+		return nil
+	}
+	var n int
+	if err := json.Unmarshal(data, &n); err == nil {
+		*f = ffprobeInt(n)
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		if s == "" {
+			*f = 0
+			return nil
+		}
+		v, err := strconv.Atoi(s)
+		if err != nil {
+			return err
+		}
+		*f = ffprobeInt(v)
+		return nil
+	}
+	return nil
 }
 
 // GetVideoInfo mirrors lerobot.datasets.video_utils.get_video_info (v0.5.1).
@@ -101,7 +130,7 @@ func GetVideoInfo(ctx context.Context, locator Locator, videoPath string) (map[s
 		}
 	}
 	if audioStream.BitsPerSample > 0 {
-		info["audio.bit_depth"] = audioStream.BitsPerSample
+		info["audio.bit_depth"] = int(audioStream.BitsPerSample)
 	}
 	if audioStream.ChannelLayout != "" {
 		info["audio.channel_layout"] = audioStream.ChannelLayout

@@ -59,7 +59,7 @@ func Merge(ctx context.Context, cfg MergeConfig) error {
 			return err
 		}
 		for videoKey, rel := range ep.Videos {
-			src := filepath.Join(dir, rel)
+			src := manifest.StagingMediaPath(dir, rel)
 			dst := filepath.Join(cfg.OutputRoot, meta.V21VideoPathFromInfo(info, videoKey, ep.EpisodeIndex))
 			if err := copyFile(src, dst); err != nil {
 				return err

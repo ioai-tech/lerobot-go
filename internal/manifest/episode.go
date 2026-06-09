@@ -24,6 +24,7 @@ type Episode struct {
 const FileName = "episode_meta.json"
 
 func Write(dir string, ep Episode) error {
+	ep.Stats = stats.SanitizeEpisodeStats(ep.Stats)
 	data, err := json.MarshalIndent(ep, "", "  ")
 	if err != nil {
 		return err
@@ -49,6 +50,20 @@ func StagingDir(root string, episodeIndex int) string {
 
 func stagingName(episodeIndex int) string {
 	return fmt.Sprintf("ep_%06d", episodeIndex)
+}
+
+// StagingMediaPath resolves a path stored in episode metadata relative to a staging dir.
+// Legacy manifests may store absolute paths; those are returned unchanged.
+func StagingMediaPath(stagingDir, rel string) string {
+	if filepath.IsAbs(rel) {
+		return rel
+	}
+	return filepath.Join(stagingDir, rel)
+}
+
+// StagingVideoRel returns the episode-relative path for a staged per-episode MP4.
+func StagingVideoRel(videoKey string) string {
+	return filepath.Join("videos", filepath.Base(videoKey)+".mp4")
 }
 
 // ListStagingEpisodes returns completed staging episode dirs sorted by episode_index.

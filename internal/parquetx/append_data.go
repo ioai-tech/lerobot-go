@@ -51,25 +51,33 @@ func WriteEpisodeBatch(ctx context.Context, dst string, entries []EpisodeBatchEn
 		return fmt.Errorf("no episode parquet entries")
 	}
 	alloc := memory.NewGoAllocator()
-	tables := make([]arrow.Table, 0, len(entries))
-	defer func() {
-		for _, tbl := range tables {
-			tbl.Release()
-		}
-	}()
-	for _, entry := range entries {
-		tbl, err := RewriteEpisodeParquet(ctx, entry.SourcePath, entry.Options, alloc)
-		if err != nil {
-			return err
-		}
-		tables = append(tables, tbl)
-	}
-	merged, err := ConcatTables(alloc, tables)
+	first, err := RewriteEpisodeParquet(ctx, entries[0].SourcePath, entries[0].Options, alloc)
 	if err != nil {
 		return err
 	}
-	defer merged.Release()
-	return WriteTable(dst, merged, alloc)
+	defer first.Release()
+	writer, err := NewAppendWriter(dst, first.Schema())
+	if err != nil {
+		return err
+	}
+	if err := writer.WriteTable(first, 1024); err != nil {
+		_ = writer.Close()
+		return err
+	}
+	for _, entry := range entries[1:] {
+		tbl, err := RewriteEpisodeParquet(ctx, entry.SourcePath, entry.Options, alloc)
+		if err != nil {
+			_ = writer.Close()
+			return err
+		}
+		if err := writer.WriteTable(tbl, 1024); err != nil {
+			tbl.Release()
+			_ = writer.Close()
+			return err
+		}
+		tbl.Release()
+	}
+	return writer.Close()
 }
 
 func RewriteEpisodeParquet(ctx context.Context, src string, opts AppendEpisodeOptions, alloc memory.Allocator) (arrow.Table, error) {

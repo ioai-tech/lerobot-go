@@ -90,6 +90,7 @@ type StagingConfig struct {
 	FFmpeg    FFmpegConfig
 	Streaming bool
 	Stats     StatsMode
+	H264Remux bool
 }
 
 // MergeConfig finalizes completed staging episodes into the on-disk dataset layout.

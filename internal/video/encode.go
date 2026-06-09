@@ -11,6 +11,19 @@ import (
 
 const DefaultCRF = 25
 
+// ResolveEncoderThreads reads LEROBOT_ENCODER_THREADS (0 when unset/invalid).
+func ResolveEncoderThreads() int {
+	v := os.Getenv("LEROBOT_ENCODER_THREADS")
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return n
+}
+
 type EncodeConfig struct {
 	Locator    Locator
 	VCodec     string
@@ -31,6 +44,9 @@ func EncodeFromPNGDir(ctx context.Context, cfg EncodeConfig) error {
 	}
 	if cfg.VCodec == "" {
 		cfg.VCodec = "libx264"
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.OutputPath), 0o755); err != nil {
+		return err
 	}
 	args := []string{
 		"-y",

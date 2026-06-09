@@ -1,6 +1,10 @@
 package stats
 
-import "testing"
+import (
+	"encoding/json"
+	"math"
+	"testing"
+)
 
 func TestAggregateStats(t *testing.T) {
 	a := EpisodeStats{
@@ -22,5 +26,16 @@ func TestAggregateStats(t *testing.T) {
 	st := agg["observation.state"]
 	if st["count"].([]int64)[0] != 20 {
 		t.Fatalf("count=%v", st["count"])
+	}
+}
+
+func TestComputeVectorStatsSanitizesInf(t *testing.T) {
+	fs := computeVectorStats([]float64{1, math.Inf(1), math.NaN()}, nil)
+	data, err := json.Marshal(fs)
+	if err != nil {
+		t.Fatalf("marshal stats: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("empty json")
 	}
 }

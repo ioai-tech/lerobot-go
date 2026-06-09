@@ -2,7 +2,9 @@ package parquetx
 
 import (
 	"context"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/apache/arrow-go/v18/arrow"
@@ -31,16 +33,32 @@ func TestWriteTasksParquetUsesTaskColumn(t *testing.T) {
 	if len(tbl.Schema().FieldIndices("task")) == 0 {
 		t.Fatal("task column missing")
 	}
-	if len(tbl.Schema().FieldIndices("__index_level_0__")) != 0 {
-		t.Fatal("legacy __index_level_0__ column should not be written for new datasets")
+	if len(tbl.Schema().FieldIndices("task_index")) == 0 {
+		t.Fatal("task_index column missing")
 	}
-
 	loaded, err := ReadTasksParquet(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if loaded["pick"] != 0 || loaded["place"] != 1 {
 		t.Fatalf("loaded task map=%v", loaded)
+	}
+
+	if err := exec.Command("python3", "-c", "import pandas").Run(); err != nil {
+		t.Skip("pandas not installed")
+	}
+	out, err := exec.Command("python3", "-c", `
+import pandas as pd, sys
+tasks = pd.read_parquet(sys.argv[1])
+tasks.index.name = "task"
+assert tasks.iloc[0].name == "pick", tasks.iloc[0].name
+assert tasks.iloc[1].name == "place", tasks.iloc[1].name
+`, path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("pandas round-trip failed: %v\n%s", err, out)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		t.Fatalf("unexpected python output: %s", out)
 	}
 }
 

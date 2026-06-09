@@ -126,6 +126,59 @@ func TestMergeMultiEpisodeParquetAppend(t *testing.T) {
 	}
 }
 
+func TestMergeEpisodePerFileLimit(t *testing.T) {
+	t.Setenv("LEROBOT_MERGE_EPISODES_PER_FILE", "1")
+	dir := t.TempDir()
+	features := map[string]meta.FeatureSpec{
+		"observation.state": {DType: "float32", Shape: []int{2}},
+		"action":            {DType: "float32", Shape: []int{2}},
+	}
+	ctx := context.Background()
+	for epIdx, task := range []string{"pick", "place"} {
+		staging := filepath.Join(dir, fmt.Sprintf("ep_%06d", epIdx))
+		w, err := v30.NewStagingWriter(v30.StagingConfig{
+			Dir: staging, Episode: epIdx, FPS: 10, Features: features, UseVideos: false,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 2; i++ {
+			if err := w.AddFrame(ctx, map[string]any{
+				"task":              task,
+				"observation.state": []float32{float32(i), float32(epIdx)},
+				"action":            []float32{0.1, 0.2},
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := w.SaveEpisode(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := filepath.Join(dir, "dataset")
+	if err := v30.Merge(ctx, v30.MergeConfig{
+		StagingRoot: dir,
+		OutputRoot:  out,
+		FPS:         10,
+		Features:    features,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := parquetx.TableNumRows(filepath.Join(out, meta.DataPath(0, 0))); err != nil || rows != 2 {
+		t.Fatalf("file 0 rows=%d err=%v", rows, err)
+	}
+	if rows, err := parquetx.TableNumRows(filepath.Join(out, meta.DataPath(0, 1))); err != nil || rows != 2 {
+		t.Fatalf("file 1 rows=%d err=%v", rows, err)
+	}
+	episodes, err := parquetx.ReadEpisodesMeta(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if episodes[1].DataFileIndex != 1 {
+		t.Fatalf("episode1 data file=%d want 1", episodes[1].DataFileIndex)
+	}
+}
+
 func TestMergeRotatesDataFilesBeforeAssigningEpisodeMetadata(t *testing.T) {
 	dir := t.TempDir()
 	features := map[string]meta.FeatureSpec{
