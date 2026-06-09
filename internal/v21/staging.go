@@ -165,18 +165,6 @@ func (w *StagingWriter) AddFrame(ctx context.Context, frame map[string]any) erro
 			}
 			w.videoFrameCounts[key]++
 			usedDecodeEncoder = true
-			continue
-			if png, ok := val.([]byte); ok {
-				if w.frameStore == nil {
-					return fmt.Errorf("frame store not initialized for video feature %q", key)
-				}
-				frameIndex := w.videoFrameCounts[key]
-				rel := filepath.Join("images", key, fmt.Sprintf("frame-%06d.png", frameIndex))
-				if err := w.frameStore.WritePNG(rel, png); err != nil {
-					return err
-				}
-				w.videoFrameCounts[key] = frameIndex + 1
-			}
 		}
 	}
 	if !usedDecodeEncoder && w.cfg.H264Remux && w.cfg.UseVideos {
@@ -503,4 +491,3 @@ func statsFeatureMap(features map[string]meta.FeatureSpec) map[string]stats.Feat
 	}
 	return out
 }
-

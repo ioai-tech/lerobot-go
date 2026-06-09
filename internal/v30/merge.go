@@ -375,8 +375,8 @@ func (st *mergeState) writeDataBatches(ctx context.Context, outputRoot string, w
 }
 
 type videoBatchJob struct {
-	locator video.Locator
-	dst     string
+	locator  video.Locator
+	dst      string
 	segments []string
 }
 

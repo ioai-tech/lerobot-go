@@ -147,7 +147,7 @@ func (w *StagingWriter) AddFrame(ctx context.Context, frame map[string]any) erro
 				w.imageBytes[key] = append(w.imageBytes[key], append([]byte(nil), png...))
 			}
 		case "video":
-			if spec.Shape == nil || len(spec.Shape) < 2 {
+			if len(spec.Shape) < 2 {
 				continue
 			}
 			vf, ok, err := video.ParseOptionalVideoFrameRGB24(val, spec.Shape[1], spec.Shape[0])
@@ -161,18 +161,6 @@ func (w *StagingWriter) AddFrame(ctx context.Context, frame map[string]any) erro
 				return err
 			}
 			videoJobs = append(videoJobs, videoJob{key: key, frame: vf})
-			continue
-			if png, ok := val.([]byte); ok {
-				if w.frameStore == nil {
-					return fmt.Errorf("frame store not initialized for video feature %q", key)
-				}
-				frameIndex := w.videoFrameCounts[key]
-				rel := filepath.Join("images", key, fmt.Sprintf("frame-%06d.png", frameIndex))
-				if err := w.frameStore.WritePNG(rel, png); err != nil {
-					return err
-				}
-				w.videoFrameCounts[key] = frameIndex + 1
-			}
 		}
 	}
 	if len(videoJobs) > 0 {
@@ -369,7 +357,7 @@ func (w *StagingWriter) finalizeEncodedVideos(ctx context.Context) (map[string]s
 		rel := manifest.StagingVideoRel(key)
 		out := filepath.Join(w.cfg.Dir, rel)
 		if enc := w.videoEncoders[key]; enc != nil {
-			out = enc.OutputPath()
+			_ = enc.OutputPath()
 			videos[key] = rel
 			durations[key] = w.videoDurationFromFrames(key)
 			continue

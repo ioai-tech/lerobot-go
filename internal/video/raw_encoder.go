@@ -1,12 +1,8 @@
 package video
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"image"
-	"image/color"
-	"image/png"
 	"io"
 	"os"
 	"os/exec"
@@ -179,36 +175,4 @@ func (e *RawRGBEncoder) Close() error {
 
 func (e *RawRGBEncoder) OutputPath() string {
 	return e.output
-}
-
-// rgb24ToPNG is a small helper used only for a bounded number of stats
-// sample frames. It encodes one RGB24 frame to PNG bytes so that
-// existing image stats sampling code can consume it via FrameBytes.
-func rgb24ToPNG(rgb24 []byte, width, height int) ([]byte, error) {
-	img := &rgbImage{
-		data:   rgb24,
-		width:  width,
-		height: height,
-	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-type rgbImage struct {
-	data          []byte
-	width, height int
-}
-
-func (i *rgbImage) ColorModel() color.Model { return color.RGBAModel }
-func (i *rgbImage) Bounds() image.Rectangle { return image.Rect(0, 0, i.width, i.height) }
-func (i *rgbImage) At(x, y int) color.Color {
-	if x < 0 || y < 0 || x >= i.width || y >= i.height {
-		return color.RGBA{}
-	}
-	idx := (y*i.width + x) * 3
-	r, g, b := i.data[idx], i.data[idx+1], i.data[idx+2]
-	return color.RGBA{R: r, G: g, B: b, A: 255}
 }

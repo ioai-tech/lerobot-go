@@ -2,7 +2,6 @@ package video
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -21,9 +20,6 @@ func TestH264RemuxEncoderRequiresFFmpeg(t *testing.T) {
 		t.Fatalf("NewH264RemuxEncoder: %v", err)
 	}
 	_ = enc.Close()
-	if _, err := os.Stat(out); err == nil {
-		// ffmpeg may create empty/partial file on close without input
-	}
 }
 
 func TestH264RemuxFFmpegArgsOmitsGenpts(t *testing.T) {

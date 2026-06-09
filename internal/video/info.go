@@ -15,17 +15,17 @@ type ffprobeOutput struct {
 }
 
 type ffprobeStream struct {
-	CodecType     string      `json:"codec_type"`
-	CodecName     string      `json:"codec_name"`
-	Width         int         `json:"width"`
-	Height        int         `json:"height"`
-	PixFmt        string      `json:"pix_fmt"`
-	RFrameRate    string      `json:"r_frame_rate"`
-	Channels      int         `json:"channels"`
-	BitRate       string      `json:"bit_rate"`
-	SampleRate    string      `json:"sample_rate"`
-	BitsPerSample ffprobeInt  `json:"bits_per_raw_sample"`
-	ChannelLayout string      `json:"channel_layout"`
+	CodecType     string     `json:"codec_type"`
+	CodecName     string     `json:"codec_name"`
+	Width         int        `json:"width"`
+	Height        int        `json:"height"`
+	PixFmt        string     `json:"pix_fmt"`
+	RFrameRate    string     `json:"r_frame_rate"`
+	Channels      int        `json:"channels"`
+	BitRate       string     `json:"bit_rate"`
+	SampleRate    string     `json:"sample_rate"`
+	BitsPerSample ffprobeInt `json:"bits_per_raw_sample"`
+	ChannelLayout string     `json:"channel_layout"`
 }
 
 // ffprobeInt accepts ffprobe numeric fields encoded as JSON numbers or strings.

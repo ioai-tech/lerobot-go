@@ -44,6 +44,9 @@ func TestWriteTasksParquetUsesTaskColumn(t *testing.T) {
 		t.Fatalf("loaded task map=%v", loaded)
 	}
 
+	if err := exec.Command("python3", "-c", "import pandas").Run(); err != nil {
+		t.Skip("pandas not installed")
+	}
 	out, err := exec.Command("python3", "-c", `
 import pandas as pd, sys
 tasks = pd.read_parquet(sys.argv[1])

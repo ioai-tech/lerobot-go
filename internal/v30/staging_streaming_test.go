@@ -1,12 +1,11 @@
 package v30_test
 
 import (
-	"bytes"
 	"context"
 	"image"
 	"image/color"
-	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -17,6 +16,9 @@ import (
 )
 
 func TestStreamingStagingFlushesParquetChunks(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
 	t.Setenv("LEROBOT_STREAMING_FLUSH_FRAMES", "2")
 	dir := filepath.Join(t.TempDir(), "ep_000000")
 	features := map[string]meta.FeatureSpec{
@@ -38,8 +40,8 @@ func TestStreamingStagingFlushesParquetChunks(t *testing.T) {
 			"observation.images.cam": video.VideoFrameRGB24{
 				Data: frameRGB, Width: 4, Height: 4,
 			},
-			"observation.state":      []float32{float32(i), 1},
-			"action":                 []float32{0.1, 0.2},
+			"observation.state": []float32{float32(i), 1},
+			"action":            []float32{0.1, 0.2},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -101,19 +103,4 @@ func tinyRGB24(t *testing.T) []byte {
 		}
 	}
 	return out
-}
-
-func tinyPNG(t *testing.T) []byte {
-	t.Helper()
-	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
-	for y := 0; y < 4; y++ {
-		for x := 0; x < 4; x++ {
-			img.Set(x, y, color.RGBA{R: uint8(x * 40), G: uint8(y * 40), B: 128, A: 255})
-		}
-	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
 }
