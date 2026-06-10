@@ -113,7 +113,13 @@ func Merge(ctx context.Context, cfg MergeConfig) error {
 	if err := meta.UpdateVideoFeaturesInfo(ctx, &info, cfg.OutputRoot, cfg.Locator); err != nil {
 		return err
 	}
-	return meta.WriteInfo(cfg.OutputRoot, info)
+	if err := meta.WriteInfo(cfg.OutputRoot, info); err != nil {
+		return err
+	}
+	if err := ValidateOutputIntegrity(cfg.OutputRoot, info, cfg.Features); err != nil {
+		return fmt.Errorf("merged output integrity: %w", err)
+	}
+	return nil
 }
 
 func copyFile(src, dst string) error {

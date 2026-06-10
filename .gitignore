@@ -1,4 +1,5 @@
 /lerobot-go
+/bin/
 /go-lerobot
 /lerobot-ds
 *.test
