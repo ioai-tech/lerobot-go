@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/ioai-tech/lerobot-go/internal/manifest"
+	"github.com/ioai-tech/lerobot-go/internal/meta"
 	v21 "github.com/ioai-tech/lerobot-go/internal/v21"
 	v30 "github.com/ioai-tech/lerobot-go/internal/v30"
 	"github.com/ioai-tech/lerobot-go/internal/video"
@@ -201,7 +202,16 @@ func (d *serialDataset) Root() string { return d.root }
 
 // ValidateOutputIntegrity checks merged dataset has data parquet and video files.
 func ValidateOutputIntegrity(root string, features map[string]FeatureSpec) error {
-	return v30.ValidateOutputIntegrity(root, features)
+	info, err := meta.LoadInfo(root)
+	if err != nil {
+		return v30.ValidateOutputIntegrity(root, features)
+	}
+	switch info.CodebaseVersion {
+	case meta.CodebaseV21:
+		return v21.ValidateOutputIntegrity(root, info, features)
+	default:
+		return v30.ValidateOutputIntegrity(root, features)
+	}
 }
 
 // Merge finalizes completed staging episodes into the official on-disk layout.

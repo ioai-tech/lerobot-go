@@ -277,7 +277,14 @@ func (w *StagingWriter) finalizeVideos(ctx context.Context) (map[string]string, 
 		return videos, durations, nil
 	}
 	if w.cfg.H264Remux {
-		return w.finalizeH264RemuxVideos(ctx)
+		remuxVideos, remuxDurations, err := w.finalizeH264RemuxVideos(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(remuxVideos) > 0 {
+			return remuxVideos, remuxDurations, nil
+		}
+		// Decode-fallback path may have streamed RGB into per-episode encoders without SetH264Remux.
 	}
 	type encClose struct {
 		key string
