@@ -40,8 +40,8 @@ func TestValidateOutputIntegrityMissingParquet(t *testing.T) {
 func TestValidateOutputIntegrityVideoRequired(t *testing.T) {
 	root := t.TempDir()
 	features := map[string]meta.FeatureSpec{
-		"observation.state":              {DType: "float32", Shape: []int{2}},
-		"observation.images.cam":         {DType: "video", Shape: []int{4, 4, 3}},
+		"observation.state":      {DType: "float32", Shape: []int{2}},
+		"observation.images.cam": {DType: "video", Shape: []int{4, 4, 3}},
 	}
 	info := meta.NewDatasetInfo(meta.CodebaseV21, 30, features, true, "test")
 	info.TotalEpisodes = 1
