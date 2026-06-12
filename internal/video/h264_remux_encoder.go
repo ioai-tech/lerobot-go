@@ -119,9 +119,16 @@ func h264RemuxFFmpegArgs(fps int, outputPath string) []string {
 	return []string{
 		"-y", "-hide_banner", "-loglevel", "error",
 		"-f", "h264",
+		// -framerate alone can be overridden by SPS VUI timing (streams then
+		// mux at 25fps and drift against parquet timestamps); input -r forces
+		// constant frame rate at the demuxer.
 		"-framerate", strconv.Itoa(fps),
+		"-r", strconv.Itoa(fps),
 		"-i", "pipe:0",
 		"-c:v", "copy",
+		// fps*512 timescale makes every packet pts an exact multiple of
+		// 1/fps, which timestamp-based dataset readers rely on.
+		"-video_track_timescale", strconv.Itoa(fps * 512),
 		"-movflags", "+faststart",
 		outputPath,
 	}

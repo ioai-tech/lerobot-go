@@ -458,6 +458,21 @@ func (w *StagingWriter) AppendRGBVideoFrame(ctx context.Context, key string, fra
 	return nil
 }
 
+// releaseConflictingEncoder closes a stray RawRGBEncoder for a feature that is
+// about to be remuxed. Both writers target the same staging mp4 path; a live
+// encoder closed after the remux job would overwrite the real video content.
+func (w *StagingWriter) releaseConflictingEncoder(key string) {
+	enc := w.videoEncoders[key]
+	if enc == nil {
+		return
+	}
+	slog.Warn("h264 remux feature also received RGB frames; discarding RGB-encoded video", "feature", key)
+	delete(w.videoEncoders, key)
+	if err := enc.Close(); err != nil {
+		slog.Warn("close conflicting encoder failed", "feature", key, "err", err)
+	}
+}
+
 func (w *StagingWriter) finalizeH264RemuxVideos(ctx context.Context) (map[string]string, map[string]float64, error) {
 	videos := map[string]string{}
 	durations := map[string]float64{}
@@ -479,6 +494,7 @@ func (w *StagingWriter) finalizeH264RemuxVideos(ctx context.Context) (map[string
 		if len(aus) == 0 {
 			return nil, nil, fmt.Errorf("remux track empty for video feature %q", key)
 		}
+		w.releaseConflictingEncoder(key)
 		rel := manifest.StagingVideoRel(key)
 		out := filepath.Join(w.cfg.Dir, rel)
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
@@ -504,8 +520,10 @@ func (w *StagingWriter) finalizeH264RemuxVideos(ctx context.Context) (map[string
 		}
 		expected := len(job.aus)
 		if nb, err := enc.FrameCount(ctx); err == nil && expected > 0 {
-			if nb != expected && nb+1 != expected && nb != expected-1 {
-				slog.Warn("h264 remux frame count drift", "feature", job.key, "ffprobe", nb, "expected", expected)
+			// Training pipelines require video frame count to equal episode
+			// length exactly; any drift silently desyncs video and parquet.
+			if nb != expected {
+				return fmt.Errorf("h264 remux frame count mismatch for %q: ffprobe=%d expected=%d (likely non-IDR leading frames or duplicate access units)", job.key, nb, expected)
 			}
 		}
 		fi, statErr := os.Stat(job.out)
