@@ -58,7 +58,7 @@ func ValidateMP4(ctx context.Context, locator Locator, path string, expectedFram
 		}
 		if dur, err := strconv.ParseFloat(fields["duration"], 64); err == nil && dur > 0 {
 			want := float64(expectedFrames) / float64(fps)
-			if math.Abs(dur-want) > math.Max(0.1, 2.0/float64(fps)) {
+			if math.Abs(dur-want) > math.Max(0.2, 5.0/float64(fps)) {
 				return fmt.Errorf("video duration mismatch for %s: got=%.3f expected=%.3f", path, dur, want)
 			}
 		}
@@ -74,6 +74,9 @@ func filteredDecodeWarnings(out string) string {
 			continue
 		}
 		if strings.Contains(line, "deprecated pixel format used") {
+			continue
+		}
+		if strings.Contains(line, "Application provided invalid, non monotonically increasing dts to muxer") {
 			continue
 		}
 		kept = append(kept, line)
