@@ -24,6 +24,7 @@ type Dataset interface {
 type StagingWriter interface {
 	AddFrame(ctx context.Context, frame Frame) error
 	SetH264Remux(ctx context.Context, tracks map[string][][]byte) error
+	SetVideoFiles(ctx context.Context, files map[string]string) error
 	AppendRGBVideoFrame(ctx context.Context, key string, frame VideoFrameRGB24) error
 	SaveEpisode(ctx context.Context) (*EpisodeManifest, error)
 	Close() error
@@ -40,6 +41,7 @@ type EpisodeManifest struct {
 type episodeBackend interface {
 	AddFrame(ctx context.Context, frame map[string]any) error
 	SetH264Remux(ctx context.Context, tracks map[string][][]byte) error
+	SetVideoFiles(ctx context.Context, files map[string]string) error
 	AppendRGBVideoFrame(ctx context.Context, key string, frame video.VideoFrameRGB24) error
 	SaveEpisode(ctx context.Context) (manifest.Episode, error)
 	Close() error
@@ -56,6 +58,10 @@ func (s *stagingWrapper) AddFrame(ctx context.Context, frame Frame) error {
 
 func (s *stagingWrapper) SetH264Remux(ctx context.Context, tracks map[string][][]byte) error {
 	return s.backend.SetH264Remux(ctx, tracks)
+}
+
+func (s *stagingWrapper) SetVideoFiles(ctx context.Context, files map[string]string) error {
+	return s.backend.SetVideoFiles(ctx, files)
 }
 
 func (s *stagingWrapper) AppendRGBVideoFrame(ctx context.Context, key string, frame VideoFrameRGB24) error {
@@ -93,7 +99,7 @@ func NewStagingWriter(ctx context.Context, cfg StagingConfig) (StagingWriter, er
 		w, err := v21.NewStagingWriter(v21.StagingConfig{
 			Dir: cfg.Dir, TempRoot: cfg.TempRoot, Episode: cfg.Episode, FPS: cfg.FPS, Features: cfg.Features,
 			Locator: locator, VCodec: cfg.VCodec, CRF: cfg.CRF, UseVideos: cfg.UseVideos, Stats: cfg.Stats.toOptions(),
-			H264Remux: cfg.H264Remux,
+			H264Remux: cfg.H264Remux, ExternalVideos: cfg.ExternalVideos,
 		})
 		if err != nil {
 			return nil, err
@@ -103,7 +109,7 @@ func NewStagingWriter(ctx context.Context, cfg StagingConfig) (StagingWriter, er
 		w, err := v30.NewStagingWriter(v30.StagingConfig{
 			Dir: cfg.Dir, TempRoot: cfg.TempRoot, Episode: cfg.Episode, FPS: cfg.FPS, Features: cfg.Features,
 			Locator: locator, VCodec: cfg.VCodec, CRF: cfg.CRF, UseVideos: cfg.UseVideos, Streaming: cfg.Streaming, Stats: cfg.Stats.toOptions(),
-			H264Remux: cfg.H264Remux,
+			H264Remux: cfg.H264Remux, ExternalVideos: cfg.ExternalVideos,
 		})
 		if err != nil {
 			return nil, err

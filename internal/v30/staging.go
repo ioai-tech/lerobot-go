@@ -3,6 +3,7 @@ package v30
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -20,18 +21,19 @@ import (
 )
 
 type StagingConfig struct {
-	Dir       string
-	Episode   int
-	FPS       int
-	Features  map[string]meta.FeatureSpec
-	Locator   video.Locator
-	VCodec    string
-	CRF       int
-	UseVideos bool
-	Streaming bool
-	Stats     stats.Options
-	TempRoot  string
-	H264Remux bool
+	Dir            string
+	Episode        int
+	FPS            int
+	Features       map[string]meta.FeatureSpec
+	Locator        video.Locator
+	VCodec         string
+	CRF            int
+	UseVideos      bool
+	Streaming      bool
+	Stats          stats.Options
+	TempRoot       string
+	H264Remux      bool
+	ExternalVideos bool
 }
 
 type StagingWriter struct {
@@ -55,6 +57,7 @@ type StagingWriter struct {
 	videoEncoders map[string]*video.RawRGBEncoder
 
 	pendingH264Remux map[string][][]byte
+	externalVideos   map[string]string
 }
 
 func NewStagingWriter(cfg StagingConfig) (*StagingWriter, error) {
@@ -83,7 +86,7 @@ func NewStagingWriter(cfg StagingConfig) (*StagingWriter, error) {
 		frameStore = store
 	}
 	videoEncoders := make(map[string]*video.RawRGBEncoder)
-	if cfg.UseVideos && !cfg.H264Remux {
+	if cfg.UseVideos && !cfg.H264Remux && !cfg.ExternalVideos {
 		for key, spec := range feats {
 			if spec.DType == "video" && len(spec.Shape) >= 2 {
 				h, w := spec.Shape[0], spec.Shape[1]
@@ -127,6 +130,24 @@ func (w *StagingWriter) SetH264Remux(ctx context.Context, tracks map[string][][]
 		return fmt.Errorf("staging writer not configured for h264 remux")
 	}
 	w.pendingH264Remux = tracks
+	return nil
+}
+
+func (w *StagingWriter) SetVideoFiles(ctx context.Context, files map[string]string) error {
+	_ = ctx
+	if w.externalVideos == nil {
+		w.externalVideos = make(map[string]string, len(files))
+	}
+	for key, path := range files {
+		spec, ok := w.buf.Features[key]
+		if !ok || spec.DType != "video" {
+			return fmt.Errorf("not a video feature: %q", key)
+		}
+		if path == "" {
+			return fmt.Errorf("empty video path for %q", key)
+		}
+		w.externalVideos[key] = path
+	}
 	return nil
 }
 
@@ -272,6 +293,16 @@ func (w *StagingWriter) finalizeVideos(ctx context.Context) (map[string]string, 
 	if !w.cfg.UseVideos {
 		return videos, durations, nil
 	}
+	xv, xd, err := w.finalizeExternalVideos(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	for k, v := range xv {
+		videos[k] = v
+	}
+	for k, v := range xd {
+		durations[k] = v
+	}
 	if w.cfg.H264Remux {
 		rv, rd, err := w.finalizeH264RemuxVideos(ctx)
 		if err != nil {
@@ -300,6 +331,32 @@ func (w *StagingWriter) finalizeVideos(ctx context.Context) (map[string]string, 
 	return videos, durations, nil
 }
 
+func (w *StagingWriter) finalizeExternalVideos(ctx context.Context) (map[string]string, map[string]float64, error) {
+	videos := map[string]string{}
+	durations := map[string]float64{}
+	for key, src := range w.externalVideos {
+		spec, ok := w.buf.Features[key]
+		if !ok || spec.DType != "video" {
+			continue
+		}
+		rel := manifest.StagingVideoRel(key)
+		dst := filepath.Join(w.cfg.Dir, rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return nil, nil, err
+		}
+		if err := copyExternalVideo(src, dst); err != nil {
+			return nil, nil, err
+		}
+		w.videoFrameCounts[key] = w.buf.Size()
+		if err := video.ValidateMP4(ctx, w.cfg.Locator, dst, w.videoFrameCounts[key], w.cfg.FPS); err != nil {
+			return nil, nil, err
+		}
+		videos[key] = rel
+		durations[key] = w.videoDurationFromFrames(key)
+	}
+	return videos, durations, nil
+}
+
 func (w *StagingWriter) finalizeEncodedVideos(ctx context.Context) (map[string]string, map[string]float64, error) {
 	videos := map[string]string{}
 	durations := map[string]float64{}
@@ -310,6 +367,9 @@ func (w *StagingWriter) finalizeEncodedVideos(ctx context.Context) (map[string]s
 	var toClose []encClose
 	for key, spec := range w.buf.Features {
 		if spec.DType != "video" || w.videoFrameCounts[key] == 0 {
+			continue
+		}
+		if _, external := w.externalVideos[key]; external {
 			continue
 		}
 		if w.pendingH264Remux != nil {
@@ -347,6 +407,9 @@ func (w *StagingWriter) finalizeEncodedVideos(ctx context.Context) (map[string]s
 	}
 	for key, spec := range w.buf.Features {
 		if spec.DType != "video" || w.videoFrameCounts[key] == 0 {
+			continue
+		}
+		if _, external := w.externalVideos[key]; external {
 			continue
 		}
 		if w.pendingH264Remux != nil {
@@ -408,6 +471,9 @@ func (w *StagingWriter) validateVideoCoverage(episodeLen int) error {
 			}
 		}
 		if w.videoFrameCounts[key] == 0 {
+			if _, external := w.externalVideos[key]; external {
+				continue
+			}
 			return fmt.Errorf("video feature %q has no frames (episode length %d)", key, episodeLen)
 		}
 	}
@@ -768,6 +834,23 @@ func (w *StagingWriter) cleanupFrames() {
 		_ = w.frameStore.Cleanup()
 		w.frameStore = nil
 	}
+}
+
+func copyExternalVideo(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 func uniqueTasks(tasks []string) []string {

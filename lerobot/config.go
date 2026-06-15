@@ -77,20 +77,21 @@ type CreateConfig struct {
 
 // StagingConfig writes one episode directory (ep_NNNNNN) for parallel ingestion.
 type StagingConfig struct {
-	Version   Version
-	Dir       string
-	Episode   int
-	TempRoot  string
-	FPS       int
-	RobotType string
-	Features  map[string]FeatureSpec
-	UseVideos bool
-	VCodec    string
-	CRF       int
-	FFmpeg    FFmpegConfig
-	Streaming bool
-	Stats     StatsMode
-	H264Remux bool
+	Version        Version
+	Dir            string
+	Episode        int
+	TempRoot       string
+	FPS            int
+	RobotType      string
+	Features       map[string]FeatureSpec
+	UseVideos      bool
+	VCodec         string
+	CRF            int
+	FFmpeg         FFmpegConfig
+	Streaming      bool
+	Stats          StatsMode
+	H264Remux      bool
+	ExternalVideos bool
 }
 
 // MergeConfig finalizes completed staging episodes into the on-disk dataset layout.

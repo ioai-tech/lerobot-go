@@ -56,6 +56,7 @@ type videoBatch struct {
 	chunk       int
 	file        int
 	segmentPath []string
+	frames      int
 }
 
 type videoChunkState struct {
@@ -64,6 +65,7 @@ type videoChunkState struct {
 	file         int
 	sizeMB       float64
 	segmentPaths []string
+	frames       int
 	duration     float64
 	batches      []videoBatch
 }
@@ -207,6 +209,7 @@ func (st *mergeState) ingestEpisode(ctx context.Context, cfg MergeConfig, dir st
 			st.advanceVideoState(videoKey)
 		}
 		vs.segmentPaths = append(vs.segmentPaths, src)
+		vs.frames += ep.Length
 		videoChunk := vs.chunk
 		videoFile := vs.file
 		fromTS := vs.duration
@@ -310,9 +313,11 @@ func (st *mergeState) flushVideoState(videoKey string) {
 		chunk:       vs.chunk,
 		file:        vs.file,
 		segmentPath: append([]string(nil), vs.segmentPaths...),
+		frames:      vs.frames,
 	}
 	vs.batches = append(vs.batches, batch)
 	vs.segmentPaths = nil
+	vs.frames = 0
 	vs.sizeMB = 0
 	vs.duration = 0
 }
@@ -378,6 +383,8 @@ type videoBatchJob struct {
 	locator  video.Locator
 	dst      string
 	segments []string
+	frames   int
+	fps      int
 }
 
 func (st *mergeState) writeVideoBatches(ctx context.Context, cfg MergeConfig) error {
@@ -389,6 +396,8 @@ func (st *mergeState) writeVideoBatches(ctx context.Context, cfg MergeConfig) er
 				locator:  cfg.Locator,
 				dst:      filepath.Join(cfg.OutputRoot, meta.VideoPath(batch.key, batch.chunk, batch.file)),
 				segments: batch.segmentPath,
+				frames:   batch.frames,
+				fps:      cfg.FPS,
 			})
 		}
 	}
@@ -398,6 +407,9 @@ func (st *mergeState) writeVideoBatches(ctx context.Context, cfg MergeConfig) er
 	if workers <= 1 || len(jobs) == 1 {
 		for _, job := range jobs {
 			if err := video.SafeConcat(ctx, job.locator, job.segments, job.dst, true); err != nil {
+				return err
+			}
+			if err := video.ValidateMP4(ctx, job.locator, job.dst, job.frames, job.fps); err != nil {
 				return err
 			}
 		}
@@ -414,6 +426,10 @@ func (st *mergeState) writeVideoBatches(ctx context.Context, cfg MergeConfig) er
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			if err := video.SafeConcat(ctx, job.locator, job.segments, job.dst, true); err != nil {
+				errCh <- err
+				return
+			}
+			if err := video.ValidateMP4(ctx, job.locator, job.dst, job.frames, job.fps); err != nil {
 				errCh <- err
 			}
 		}()
