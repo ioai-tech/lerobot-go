@@ -287,6 +287,16 @@ func (w *StagingWriter) videoDurationFromFrames(key string) float64 {
 	return float64(w.videoFrameCounts[key]) / float64(w.cfg.FPS)
 }
 
+// episodeFrameCount returns the number of frames in the current episode,
+// accounting for the streaming path where rows are flushed out of w.buf into
+// w.totalFrames as the episode is written.
+func (w *StagingWriter) episodeFrameCount() int {
+	if w.streamingEnabled() {
+		return w.totalFrames
+	}
+	return w.buf.Size()
+}
+
 func (w *StagingWriter) finalizeVideos(ctx context.Context) (map[string]string, map[string]float64, error) {
 	videos := map[string]string{}
 	durations := map[string]float64{}
@@ -347,7 +357,12 @@ func (w *StagingWriter) finalizeExternalVideos(ctx context.Context) (map[string]
 		if err := copyExternalVideo(src, dst); err != nil {
 			return nil, nil, err
 		}
-		w.videoFrameCounts[key] = w.buf.Size()
+		// In streaming mode the row buffer is flushed/reset incrementally, so
+		// w.buf.Size() is 0 at finalize time and the per-episode frame count
+		// (and thus video duration / from_timestamp / to_timestamp) lives in
+		// w.totalFrames. Using buf.Size() here would zero every episode's video
+		// duration, collapsing all from/to_timestamps to 0.
+		w.videoFrameCounts[key] = w.episodeFrameCount()
 		if err := video.ValidateMP4(ctx, w.cfg.Locator, dst, w.videoFrameCounts[key], w.cfg.FPS); err != nil {
 			return nil, nil, err
 		}
