@@ -62,8 +62,65 @@ func ValidateMP4(ctx context.Context, locator Locator, path string, expectedFram
 				return fmt.Errorf("video duration mismatch for %s: got=%.3f expected=%.3f", path, dur, want)
 			}
 		}
+		if err := validateExactFPSTimestamps(ctx, ffprobe, path, expectedFrames, fps); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// validateExactFPSTimestamps ensures packet PTS match i/fps within LeRobot's
+// default training tolerance (1e-4s). Drift here surfaces as torchcodec
+// AssertionError when decoding dataset videos.
+func validateExactFPSTimestamps(ctx context.Context, ffprobe, path string, expectedFrames, fps int) error {
+	const toleranceS = 1e-4
+	out, err := exec.CommandContext(ctx, ffprobe,
+		"-v", "error", "-select_streams", "v:0",
+		"-show_entries", "frame=pts_time,best_effort_timestamp_time,pkt_pts_time",
+		"-of", "csv=p=0", path,
+	).Output()
+	if err != nil {
+		return fmt.Errorf("ffprobe pts validation failed for %s: %w", path, err)
+	}
+	var timestamps []float64
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		ts, ok := firstProbeTimestamp(line)
+		if !ok {
+			return fmt.Errorf("ffprobe pts validation failed for %s: parse %q", path, line)
+		}
+		timestamps = append(timestamps, ts)
+	}
+	if len(timestamps) == 0 {
+		return fmt.Errorf("ffprobe pts validation failed for %s: no frames", path)
+	}
+	if expectedFrames > 0 && len(timestamps) != expectedFrames {
+		return fmt.Errorf("video frame count mismatch for %s: timed=%d expected=%d", path, len(timestamps), expectedFrames)
+	}
+	for i, ts := range timestamps {
+		want := float64(i) / float64(fps)
+		if math.Abs(ts-want) > toleranceS {
+			return fmt.Errorf("video timestamp drift for %s at frame %d: pts=%.6f want=%.6f (tol=%g)", path, i, ts, want, toleranceS)
+		}
+	}
+	return nil
+}
+
+func firstProbeTimestamp(line string) (float64, bool) {
+	for _, part := range strings.Split(line, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" || part == "N/A" {
+			continue
+		}
+		ts, err := strconv.ParseFloat(part, 64)
+		if err == nil {
+			return ts, true
+		}
+	}
+	return 0, false
 }
 
 func filteredDecodeWarnings(out string) string {
