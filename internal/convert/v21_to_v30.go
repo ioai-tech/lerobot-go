@@ -237,7 +237,7 @@ func convertV21Videos(ctx context.Context, cfg Config, epMeta []parquetx.Episode
 	}
 	sort.Strings(videoKeys)
 	for _, key := range videoKeys {
-		if err := convertV21Camera(ctx, cfg, key, epMeta); err != nil {
+		if err := convertV21Camera(ctx, cfg, key, epMeta, info.FPS); err != nil {
 			return err
 		}
 	}
@@ -256,7 +256,7 @@ func v21VideoPath(root, videoKey string, ep int) string {
 	return filepath.Join(root, meta.V21VideoPathFromInfo(info, filepath.Base(videoKey), ep))
 }
 
-func convertV21Camera(ctx context.Context, cfg Config, videoKey string, epMeta []parquetx.EpisodeMetaInput) error {
+func convertV21Camera(ctx context.Context, cfg Config, videoKey string, epMeta []parquetx.EpisodeMetaInput, fps int) error {
 	chunk, file := 0, 0
 	var sizeMB float64
 	var paths []string
@@ -268,7 +268,7 @@ func convertV21Camera(ctx context.Context, cfg Config, videoKey string, epMeta [
 			return nil
 		}
 		out := filepath.Join(cfg.Output, meta.VideoPath(videoKey, chunk, file))
-		if err := video.SafeConcat(ctx, cfg.Locator, paths, out, true); err != nil {
+		if err := video.SafeConcat(ctx, cfg.Locator, paths, out, true, fps); err != nil {
 			return err
 		}
 		for ep := startEp; ep < upTo; ep++ {

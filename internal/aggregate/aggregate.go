@@ -262,7 +262,7 @@ func mergeV30(ctx context.Context, cfg Config) error {
 		return err
 	}
 	flushAllVideoStates(videoStates)
-	if err := writeVideoBatches(ctx, cfg, videoStates); err != nil {
+	if err := writeVideoBatches(ctx, cfg, videoStates, base.FPS); err != nil {
 		return err
 	}
 
@@ -570,11 +570,11 @@ func advanceVideoState(states map[string]*videoChunkState, key string, chunkSize
 	state.chunk, state.file = meta.UpdateChunkFileIndices(state.chunk, state.file, chunkSize)
 }
 
-func writeVideoBatches(ctx context.Context, cfg Config, states map[string]*videoChunkState) error {
+func writeVideoBatches(ctx context.Context, cfg Config, states map[string]*videoChunkState, fps int) error {
 	for _, state := range states {
 		for _, batch := range state.batches {
 			dst := filepath.Join(cfg.Output, meta.VideoPath(batch.key, batch.chunk, batch.file))
-			if err := video.SafeConcat(ctx, cfg.Locator, batch.segmentPaths, dst, true); err != nil {
+			if err := video.SafeConcat(ctx, cfg.Locator, batch.segmentPaths, dst, true, fps); err != nil {
 				return err
 			}
 		}
