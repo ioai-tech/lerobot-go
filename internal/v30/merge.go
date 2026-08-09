@@ -406,7 +406,7 @@ func (st *mergeState) writeVideoBatches(ctx context.Context, cfg MergeConfig) er
 	}
 	if workers <= 1 || len(jobs) == 1 {
 		for _, job := range jobs {
-			if err := video.SafeConcat(ctx, job.locator, job.segments, job.dst, true); err != nil {
+			if err := video.SafeConcat(ctx, job.locator, job.segments, job.dst, true, job.fps); err != nil {
 				return err
 			}
 			if err := video.ValidateMP4(ctx, job.locator, job.dst, job.frames, job.fps); err != nil {
@@ -425,7 +425,7 @@ func (st *mergeState) writeVideoBatches(ctx context.Context, cfg MergeConfig) er
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if err := video.SafeConcat(ctx, job.locator, job.segments, job.dst, true); err != nil {
+			if err := video.SafeConcat(ctx, job.locator, job.segments, job.dst, true, job.fps); err != nil {
 				errCh <- err
 				return
 			}
