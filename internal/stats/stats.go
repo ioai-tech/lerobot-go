@@ -1,8 +1,12 @@
 package stats
 
 import (
+	"context"
+	"fmt"
 	"math"
 	"sort"
+
+	"github.com/ioai-tech/lerobot-go/internal/video"
 )
 
 var DefaultQuantiles = []float64{0.01, 0.10, 0.50, 0.90, 0.99}
@@ -20,9 +24,35 @@ type EpisodeInput struct {
 	Columns    map[string]any
 	FramePaths map[string][]string
 	FrameBytes map[string][][]byte
+	// VideoFiles maps image/video feature keys to MP4 paths. Used when
+	// FramePaths/FrameBytes are empty (ExternalVideos / H264Remux / encode).
+	VideoFiles map[string]string
+	// Length is the episode frame count, used to sample VideoFiles.
+	Length int
+	// Locator resolves ffmpeg/ffprobe. Optional; PATH/bundled binaries are used when nil.
+	Locator video.Locator
+	// Ctx cancels ffmpeg sampling. Optional.
+	Ctx context.Context
+}
+
+func (in EpisodeInput) ctx() context.Context {
+	if in.Ctx != nil {
+		return in.Ctx
+	}
+	return context.Background()
 }
 
 func ComputeEpisodeStats(in EpisodeInput, features map[string]FeatureDesc, opts Options) EpisodeStats {
+	out, _ := computeEpisodeStats(in, features, opts)
+	return out
+}
+
+// ComputeEpisodeStatsErr is ComputeEpisodeStats but surfaces sampling failures.
+func ComputeEpisodeStatsErr(in EpisodeInput, features map[string]FeatureDesc, opts Options) (EpisodeStats, error) {
+	return computeEpisodeStats(in, features, opts)
+}
+
+func computeEpisodeStats(in EpisodeInput, features map[string]FeatureDesc, opts Options) (EpisodeStats, error) {
 	opts = opts.normalized()
 	out := make(EpisodeStats)
 	for key, spec := range features {
@@ -32,7 +62,8 @@ func ComputeEpisodeStats(in EpisodeInput, features map[string]FeatureDesc, opts 
 		case "image", "video":
 			paths := in.FramePaths[key]
 			frames := in.FrameBytes[key]
-			if len(paths) == 0 && len(frames) == 0 {
+			videoPath := in.VideoFiles[key]
+			if len(paths) == 0 && len(frames) == 0 && videoPath == "" {
 				continue
 			}
 			full := opts.Mode == ModeFull
@@ -41,12 +72,18 @@ func ComputeEpisodeStats(in EpisodeInput, features map[string]FeatureDesc, opts 
 				sampleCount int
 				err         error
 			)
-			if len(paths) > 0 {
+			switch {
+			case len(paths) > 0:
 				imgs, sampleCount, err = sampleImages(paths, full)
-			} else {
+			case len(frames) > 0:
 				imgs, sampleCount, err = sampleImageBytes(frames, full)
+			default:
+				imgs, sampleCount, err = sampleVideo(in.ctx(), in.Locator, videoPath, in.Length, full)
 			}
-			if err != nil || sampleCount == 0 {
+			if err != nil {
+				return out, fmt.Errorf("stats %s: %w", key, err)
+			}
+			if sampleCount == 0 {
 				continue
 			}
 			out[key] = computeImageFeatureStats(imgs, sampleCount)
@@ -58,7 +95,7 @@ func ComputeEpisodeStats(in EpisodeInput, features map[string]FeatureDesc, opts 
 			out[key] = computeVectorStats(vals, spec.Shape)
 		}
 	}
-	return out
+	return out, nil
 }
 
 func computeImageFeatureStats(imgs [][][][]uint8, sampleCount int) FeatureStats {
@@ -131,7 +168,7 @@ func sanitizeFeatureStats(fs FeatureStats) FeatureStats {
 		case []float64:
 			out[k] = finiteFloatSlice(x)
 		case ImageStat311:
-			out[k] = ImageStat311FromChannels(finiteFloatSlice(x.Channels()))
+			out[k] = imageStat311FromUnit(finiteFloatSlice(x.Channels()))
 		default:
 			out[k] = v
 		}
@@ -237,9 +274,18 @@ func percentile(sorted []float64, q float64) float64 {
 type ImageStat311 [][][]float64
 
 func ImageStat311FromChannels(ch []float64) ImageStat311 {
+	scaled := make([]float64, len(ch))
+	for i, v := range ch {
+		scaled[i] = v / 255.0
+	}
+	return imageStat311FromUnit(scaled)
+}
+
+// imageStat311FromUnit wraps already-normalized [0,1] channel values as (C,1,1).
+func imageStat311FromUnit(ch []float64) ImageStat311 {
 	out := make(ImageStat311, len(ch))
 	for i, v := range ch {
-		out[i] = [][]float64{{v / 255.0}}
+		out[i] = [][]float64{{v}}
 	}
 	return out
 }
@@ -347,35 +393,6 @@ func AggregateStats(list []EpisodeStats) map[string]map[string]any {
 	return out
 }
 
-func asFloat64Slice(v any) []float64 {
-	switch x := v.(type) {
-	case []float64:
-		return x
-	case ImageStat311:
-		return x.Channels()
-	case []int64:
-		out := make([]float64, len(x))
-		for i, n := range x {
-			out[i] = float64(n)
-		}
-		return out
-	case []int:
-		out := make([]float64, len(x))
-		for i, n := range x {
-			out[i] = float64(n)
-		}
-		return out
-	case []any:
-		out := make([]float64, len(x))
-		for i, e := range x {
-			out[i] = toFloat64(e)
-		}
-		return out
-	default:
-		return nil
-	}
-}
-
 func toFloat64(v any) float64 {
 	switch x := v.(type) {
 	case float64:
@@ -446,10 +463,10 @@ func aggregateFeature(parts []FeatureStats) map[string]any {
 		"count": []int64{int64(totalCount)},
 	}
 	if isImage {
-		result["min"] = ImageStat311FromChannels(min)
-		result["max"] = ImageStat311FromChannels(max)
-		result["mean"] = ImageStat311FromChannels(mean)
-		result["std"] = ImageStat311FromChannels(std)
+		result["min"] = imageStat311FromUnit(min)
+		result["max"] = imageStat311FromUnit(max)
+		result["mean"] = imageStat311FromUnit(mean)
+		result["std"] = imageStat311FromUnit(std)
 	} else {
 		result["min"] = min
 		result["max"] = max
@@ -475,7 +492,7 @@ func aggregateFeature(parts []FeatureStats) map[string]any {
 			qvals[j] = finiteFloat(qvals[j] / totalCount)
 		}
 		if isImage {
-			result[key] = ImageStat311FromChannels(qvals)
+			result[key] = imageStat311FromUnit(qvals)
 		} else {
 			result[key] = qvals
 		}
@@ -510,8 +527,38 @@ func countValue(v any) float64 {
 }
 
 func isImageStat(v any) bool {
-	_, ok := v.(ImageStat311)
+	_, ok := AsImageStat311(v)
 	return ok
+}
+
+func asFloat64Slice(v any) []float64 {
+	if img, ok := AsImageStat311(v); ok {
+		return img.Channels()
+	}
+	switch x := v.(type) {
+	case []float64:
+		return x
+	case []int64:
+		out := make([]float64, len(x))
+		for i, n := range x {
+			out[i] = float64(n)
+		}
+		return out
+	case []int:
+		out := make([]float64, len(x))
+		for i, n := range x {
+			out[i] = float64(n)
+		}
+		return out
+	case []any:
+		out := make([]float64, len(x))
+		for i, e := range x {
+			out[i] = toFloat64(e)
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func ToJSONSerializable(stats map[string]map[string]any) map[string]map[string]any {

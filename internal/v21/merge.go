@@ -104,6 +104,9 @@ func Merge(ctx context.Context, cfg MergeConfig) error {
 		return err
 	}
 	agg := stats.AggregateStats(allStats)
+	if err := stats.CheckAggregateVisualCoverage(agg, featureDescs(cfg.Features)); err != nil {
+		return err
+	}
 	if err := meta.WriteStats(cfg.OutputRoot, stats.ToJSONSerializable(agg)); err != nil {
 		return err
 	}
@@ -202,6 +205,14 @@ func copyReplaceIndex(src, dst string, globalIndex int64, episodeIndex int, task
 	}
 	defer tbl.Release()
 	return parquetx.WriteTable(dst, tbl, nil)
+}
+
+func featureDescs(features map[string]meta.FeatureSpec) map[string]stats.FeatureDesc {
+	out := make(map[string]stats.FeatureDesc, len(features))
+	for k, v := range features {
+		out[k] = stats.FeatureDesc{DType: v.DType, Shape: v.Shape}
+	}
+	return out
 }
 
 func hasVideoFeatures(features map[string]meta.FeatureSpec) bool {

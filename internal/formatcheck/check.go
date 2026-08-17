@@ -12,6 +12,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/ioai-tech/lerobot-go/internal/meta"
 	"github.com/ioai-tech/lerobot-go/internal/parquetx"
+	"github.com/ioai-tech/lerobot-go/internal/stats"
 )
 
 var requiredDataColumns = []string{
@@ -81,6 +82,8 @@ func validateV21(root string, info meta.DatasetInfo, opts Options) Result {
 	}
 	if _, err := os.Stat(filepath.Join(root, meta.StatsPath)); err != nil {
 		warnMissingStats(opts.Strict, warn)
+	} else {
+		checkStatsVisualCoverage(root, info, check)
 	}
 
 	episodes, err := readJSONL(filepath.Join(root, meta.LegacyEpisodesPath))
@@ -193,6 +196,8 @@ func validateV30(root string, info meta.DatasetInfo, opts Options) Result {
 
 	if _, err := os.Stat(filepath.Join(root, meta.StatsPath)); err != nil {
 		warnMissingStats(opts.Strict, warn)
+	} else {
+		checkStatsVisualCoverage(root, info, check)
 	}
 
 	if !strings.Contains(info.DataPath, "file-{file_index") {
@@ -314,6 +319,16 @@ func readJSONL(path string) ([]map[string]any, error) {
 		rows = append(rows, row)
 	}
 	return rows, sc.Err()
+}
+
+func checkStatsVisualCoverage(root string, info meta.DatasetInfo, check func(string)) {
+	desc := make(map[string]stats.FeatureDesc, len(info.Features))
+	for k, v := range info.Features {
+		desc[k] = stats.FeatureDesc{DType: v.DType, Shape: v.Shape}
+	}
+	if err := stats.CheckStatsFileVisualCoverage(filepath.Join(root, meta.StatsPath), desc); err != nil {
+		check(err.Error())
+	}
 }
 
 func listFiles(root string) []string {

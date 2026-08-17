@@ -66,6 +66,7 @@ func loadRealDatasetCases(t *testing.T) []realDatasetCase {
 		"lerobot_dataset 8":       false, // corrupt frame count
 		"lerobot_dataset 9":       true,
 		"lerobot_dataset 10":      true,
+		"lerobot_dataset 22":      false, // v3.0 stats.json omits video keys (issue #4)
 		"lerobot_datasetv2-image": true,
 	}
 

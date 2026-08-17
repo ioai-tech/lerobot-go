@@ -140,6 +140,9 @@ func Merge(ctx context.Context, cfg MergeConfig) error {
 		return err
 	}
 	agg := stats.AggregateStats(st.allEpisodeStats)
+	if err := stats.CheckAggregateVisualCoverage(agg, featureDescs(cfg.Features)); err != nil {
+		return err
+	}
 	if err := meta.WriteStats(cfg.OutputRoot, stats.ToJSONSerializable(agg)); err != nil {
 		return err
 	}
@@ -444,11 +447,12 @@ func (st *mergeState) writeVideoBatches(ctx context.Context, cfg MergeConfig) er
 	return nil
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
+func featureDescs(features map[string]meta.FeatureSpec) map[string]stats.FeatureDesc {
+	out := make(map[string]stats.FeatureDesc, len(features))
+	for k, v := range features {
+		out[k] = stats.FeatureDesc{DType: v.DType, Shape: v.Shape}
 	}
-	return b
+	return out
 }
 
 func hasVideoFeatures(features map[string]meta.FeatureSpec) bool {

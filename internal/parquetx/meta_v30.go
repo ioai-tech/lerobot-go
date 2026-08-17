@@ -244,7 +244,7 @@ func flattenStats(ep stats.EpisodeStats, features map[string]meta.FeatureSpec) [
 				continue
 			}
 			if imageLike {
-				if img, ok := raw.(stats.ImageStat311); ok {
+				if img, ok := stats.AsImageStat311(raw); ok {
 					out = append(out, struct {
 						key  string
 						kind statColumnKind
@@ -345,8 +345,10 @@ func buildListInt64Array(alloc memory.Allocator, rows [][]int64) (arrow.Array, e
 }
 
 func buildListImage311Array(alloc memory.Allocator, rows []stats.ImageStat311) (arrow.Array, error) {
-	dt := arrow.ListOf(arrow.ListOf(arrow.ListOf(arrow.PrimitiveTypes.Float64)))
-	lb := array.NewListBuilder(alloc, dt)
+	// Column type is list<list<list<f64>>> — (C,1,1) per episode.
+	// NewListBuilder's value type is the inner list<list<f64>>, not the column type.
+	inner := arrow.ListOf(arrow.ListOf(arrow.PrimitiveTypes.Float64))
+	lb := array.NewListBuilder(alloc, inner)
 	defer lb.Release()
 	l2b := lb.ValueBuilder().(*array.ListBuilder)
 	l1b := l2b.ValueBuilder().(*array.ListBuilder)
