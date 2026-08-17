@@ -16,7 +16,10 @@ type Config struct {
 }
 
 func DefaultMaxWorkers() int {
-	n := runtime.NumCPU() - 2
+	// Honor the process CPU budget (GOMAXPROCS / cgroup). Do not reserve
+	// extra cores: containers already cap CPUs, and callers often want to
+	// saturate that quota.
+	n := runtime.GOMAXPROCS(0)
 	if n < 1 {
 		n = 1
 	}

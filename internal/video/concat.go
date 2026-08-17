@@ -7,8 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // SafeConcat concatenates MP4 segments into one file with exact CFR timestamps
@@ -49,26 +51,63 @@ func SafeConcat(ctx context.Context, locator Locator, inputs []string, output st
 	return concatCFR(ctx, ffmpeg, inputs, output, fps)
 }
 
-// concatCFR re-encodes segments through the concat filter and forces
-// setpts=N/(fps*TB) so torchcodec/pyav see timestamps matching parquet
-// frame_index/fps (+ episode from_timestamp).
+// concatCFR re-encodes segments through the concat demuxer (one file at a time)
+// and forces setpts=N/(fps*TB) so torchcodec/pyav see timestamps matching
+// parquet frame_index/fps (+ episode from_timestamp).
+//
+// filter_complex concat is avoided: it opens every input decoder at once and
+// OOMs on large v3.0 merges (hundreds of episode MP4s per 200MB shard).
 func concatCFR(ctx context.Context, ffmpeg string, inputs []string, output string, fps int) error {
-	args := []string{"-y", "-hide_banner", "-loglevel", "error"}
+	listFile, err := writeConcatList(inputs)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(listFile) }()
+
+	args := cfrConcatArgs(ffmpeg, listFile, output, fps)
+	cmd := exec.CommandContext(ctx, ffmpeg, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("cfr concat failed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func writeConcatList(inputs []string) (string, error) {
+	f, err := os.CreateTemp("", "lerobot-concat-*.ffconcat")
+	if err != nil {
+		return "", err
+	}
 	for _, in := range inputs {
-		args = append(args, "-i", in)
+		abs, err := filepath.Abs(in)
+		if err != nil {
+			_ = f.Close()
+			_ = os.Remove(f.Name())
+			return "", err
+		}
+		escaped := strings.ReplaceAll(abs, "'", `'\''`)
+		if _, err := fmt.Fprintf(f, "file '%s'\n", escaped); err != nil {
+			_ = f.Close()
+			_ = os.Remove(f.Name())
+			return "", err
+		}
 	}
-	var filters []string
-	var maps []string
-	for i := range inputs {
-		filters = append(filters, fmt.Sprintf("[%d:v]setpts=PTS-STARTPTS[v%d]", i, i))
-		maps = append(maps, fmt.Sprintf("[v%d]", i))
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return "", err
 	}
-	filter := strings.Join(filters, ";") + ";" +
-		strings.Join(maps, "") +
-		fmt.Sprintf("concat=n=%d:v=1:a=0,setpts=N/(%d*TB)[outv]", len(inputs), fps)
+	return f.Name(), nil
+}
+
+// cfrConcatArgs builds the sequential concat-demuxer + setpts re-encode command.
+func cfrConcatArgs(ffmpeg, listFile, output string, fps int) []string {
+	args := []string{
+		"-y", "-hide_banner", "-loglevel", "error",
+		"-fflags", "+genpts",
+		"-f", "concat", "-safe", "0", "-i", listFile,
+	}
+	args = append(args, passthroughRateArgs(ffmpeg)...)
 	args = append(args,
-		"-filter_complex", filter,
-		"-map", "[outv]",
+		"-vf", fmt.Sprintf("setpts=N/(%d*TB)", fps),
 		"-an", "-sn",
 		"-c:v", "libx264",
 		"-crf", strconv.Itoa(DefaultCRF),
@@ -84,12 +123,42 @@ func concatCFR(ctx context.Context, ffmpeg string, inputs []string, output strin
 	if threads := ResolveEncoderThreads(); threads > 0 {
 		args = append(args, "-threads", strconv.Itoa(threads))
 	}
-	args = append(args, output)
-	cmd := exec.CommandContext(ctx, ffmpeg, args...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("cfr concat failed: %w: %s", err, strings.TrimSpace(string(out)))
+	return append(args, output)
+}
+
+func passthroughRateArgs(ffmpeg string) []string {
+	if ffmpegSupportsFPSMode(ffmpeg) {
+		return []string{"-fps_mode", "passthrough"}
 	}
-	return nil
+	return []string{"-vsync", "0"}
+}
+
+var (
+	ffmpegMajorOnce sync.Map // string -> int
+	ffmpegVersionRE = regexp.MustCompile(`(?i)ffmpeg version (?:n)?(\d+)`)
+)
+
+func ffmpegSupportsFPSMode(ffmpeg string) bool {
+	return ffmpegMajorVersion(ffmpeg) >= 5
+}
+
+func ffmpegMajorVersion(ffmpeg string) int {
+	if ffmpeg == "" {
+		return 0
+	}
+	if v, ok := ffmpegMajorOnce.Load(ffmpeg); ok {
+		return v.(int)
+	}
+	cmd := exec.Command(ffmpeg, "-version")
+	out, err := cmd.Output()
+	major := 0
+	if err == nil {
+		if m := ffmpegVersionRE.FindSubmatch(out); len(m) == 2 {
+			major, _ = strconv.Atoi(string(m[1]))
+		}
+	}
+	ffmpegMajorOnce.Store(ffmpeg, major)
+	return major
 }
 
 func probeFPS(ctx context.Context, locator Locator, path string) (int, error) {
