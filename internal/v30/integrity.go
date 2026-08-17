@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/ioai-tech/lerobot-go/internal/meta"
+	"github.com/ioai-tech/lerobot-go/internal/stats"
 )
 
 func requiredVideoKeys(features map[string]meta.FeatureSpec) []string {
@@ -35,6 +36,9 @@ func ValidateOutputIntegrity(outputRoot string, features map[string]meta.Feature
 		if fi.Size() == 0 {
 			return fmt.Errorf("data parquet empty: %s", p)
 		}
+	}
+	if err := stats.CheckStatsFileVisualCoverage(filepath.Join(outputRoot, meta.StatsPath), featureDescs(features)); err != nil {
+		return err
 	}
 	if !hasVideoFeatures(features) {
 		return nil

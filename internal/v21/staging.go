@@ -267,6 +267,10 @@ func (w *StagingWriter) SaveEpisode(ctx context.Context) (manifest.Episode, erro
 	if err != nil {
 		return manifest.Episode{}, err
 	}
+	epStats, err = overlayStagingVideoStats(ctx, w.cfg.Dir, w.cfg.Locator, videos, w.buf.Size(), featureStats, w.cfg.Stats, epStats)
+	if err != nil {
+		return manifest.Episode{}, err
+	}
 
 	ep := manifest.Episode{
 		EpisodeIndex:   w.cfg.Episode,
@@ -587,6 +591,20 @@ func indexOf(tasks []string, task string) int {
 		}
 	}
 	return 0
+}
+
+func overlayStagingVideoStats(ctx context.Context, dir string, locator video.Locator, videos map[string]string, length int, features map[string]stats.FeatureDesc, opts stats.Options, epStats stats.EpisodeStats) (stats.EpisodeStats, error) {
+	if len(videos) == 0 {
+		return epStats, nil
+	}
+	files := make(map[string]string, len(videos))
+	for key, rel := range videos {
+		files[key] = filepath.Join(dir, rel)
+	}
+	return stats.OverlayFromVideos(epStats, files, length, features, opts, stats.EpisodeInput{
+		Ctx:     ctx,
+		Locator: locator,
+	})
 }
 
 func statsFeatureMap(features map[string]meta.FeatureSpec) map[string]stats.FeatureDesc {

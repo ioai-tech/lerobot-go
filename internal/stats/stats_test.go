@@ -29,6 +29,29 @@ func TestAggregateStats(t *testing.T) {
 	}
 }
 
+func TestAggregateStatsImageNoDoubleDivide(t *testing.T) {
+	mean := ImageStat311{{{0.50}}, {{0.10}}, {{0.20}}}
+	a := EpisodeStats{
+		"cam": {
+			"min": mean, "max": mean, "mean": mean,
+			"std":   ImageStat311{{{0.01}}, {{0.01}}, {{0.01}}},
+			"count": []int64{10},
+		},
+	}
+	agg := AggregateStats([]EpisodeStats{a, a})
+	got, ok := AsImageStat311(agg["cam"]["mean"])
+	if !ok {
+		t.Fatalf("mean type %T", agg["cam"]["mean"])
+	}
+	ch := got.Channels()
+	if len(ch) != 3 {
+		t.Fatalf("channels=%d", len(ch))
+	}
+	if ch[0] < 0.49 || ch[0] > 0.51 {
+		t.Fatalf("mean R=%v want ~0.50 (double /255 would be ~0.002)", ch[0])
+	}
+}
+
 func TestComputeVectorStatsSanitizesInf(t *testing.T) {
 	fs := computeVectorStats([]float64{1, math.Inf(1), math.NaN()}, nil)
 	data, err := json.Marshal(fs)

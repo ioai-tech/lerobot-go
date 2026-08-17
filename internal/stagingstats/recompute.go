@@ -35,10 +35,24 @@ func RecomputeEpisodeStatsWithOptions(ctx context.Context, stagingDir string, ep
 	for k, v := range meta.DefaultFeatures {
 		desc[k] = stats.FeatureDesc{DType: v.DType, Shape: v.Shape}
 	}
-	return stats.ComputeEpisodeStats(stats.EpisodeInput{
+	return stats.ComputeEpisodeStatsErr(stats.EpisodeInput{
 		Columns:    cols,
 		FramePaths: collectFramePaths(stagingDir, features),
-	}, desc, opts), nil
+		VideoFiles: collectVideoFiles(stagingDir, ep),
+		Length:     ep.Length,
+		Ctx:        ctx,
+	}, desc, opts)
+}
+
+func collectVideoFiles(stagingDir string, ep manifest.Episode) map[string]string {
+	if len(ep.Videos) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(ep.Videos))
+	for key, rel := range ep.Videos {
+		out[key] = manifest.StagingMediaPath(stagingDir, rel)
+	}
+	return out
 }
 
 func applyAppendOverrides(cols map[string]any, length int, appendOpts *parquetx.AppendEpisodeOptions) error {
