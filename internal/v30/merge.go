@@ -444,13 +444,6 @@ func (st *mergeState) writeVideoBatches(ctx context.Context, cfg MergeConfig) er
 	return nil
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
 func hasVideoFeatures(features map[string]meta.FeatureSpec) bool {
 	for _, f := range features {
 		if f.DType == "video" {
