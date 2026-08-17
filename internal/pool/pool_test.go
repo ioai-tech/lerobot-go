@@ -2,9 +2,20 @@ package pool
 
 import (
 	"context"
+	"runtime"
 	"sync/atomic"
 	"testing"
 )
+
+func TestDefaultMaxWorkersUsesGOMAXPROCS(t *testing.T) {
+	want := runtime.GOMAXPROCS(0)
+	if want < 1 {
+		want = 1
+	}
+	if got := DefaultMaxWorkers(); got != want {
+		t.Fatalf("DefaultMaxWorkers()=%d want %d (GOMAXPROCS)", got, want)
+	}
+}
 
 func TestRunBounded(t *testing.T) {
 	var n atomic.Int32

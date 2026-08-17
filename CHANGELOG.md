@@ -5,6 +5,13 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.3] - 2026-08-17
+
+### Fixed
+
+- v3.0 `SafeConcat` now uses the concat demuxer plus a single `setpts` re-encode, so large merges no longer open every episode MP4 in one `filter_complex` graph (OOM / `cfr concat failed: signal: killed`)
+- Default worker count follows `GOMAXPROCS` (container CPU quota) instead of `NumCPU()-2`
+
 ## [Unreleased]
 
 ### Changed
@@ -36,5 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Episode stats modes: `sampled` and `full`
 - Video `features[].info` via ffprobe
 
-[Unreleased]: https://github.com/ioai-tech/lerobot-go/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ioai-tech/lerobot-go/compare/v1.2.3...HEAD
+[1.2.3]: https://github.com/ioai-tech/lerobot-go/releases/tag/v1.2.3
 [0.2.0]: https://github.com/ioai-tech/lerobot-go/releases/tag/v0.2.0

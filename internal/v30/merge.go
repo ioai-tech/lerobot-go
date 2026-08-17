@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"runtime"
 	"strconv"
 	"sync"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/ioai-tech/lerobot-go/internal/manifest"
 	"github.com/ioai-tech/lerobot-go/internal/meta"
 	"github.com/ioai-tech/lerobot-go/internal/parquetx"
+	"github.com/ioai-tech/lerobot-go/internal/pool"
 	"github.com/ioai-tech/lerobot-go/internal/stagingstats"
 	"github.com/ioai-tech/lerobot-go/internal/stats"
 	"github.com/ioai-tech/lerobot-go/internal/video"
@@ -337,7 +337,7 @@ func mergeWorkers(cfg MergeConfig) int {
 	if cfg.MaxWorkers > 0 {
 		return cfg.MaxWorkers
 	}
-	return max(1, runtime.NumCPU()-2)
+	return pool.DefaultMaxWorkers()
 }
 
 func (st *mergeState) writeDataBatches(ctx context.Context, outputRoot string, workers int) error {
