@@ -21,7 +21,7 @@ func ValidateMP4(ctx context.Context, locator Locator, path string, expectedFram
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(ctx, ffmpeg, "-v", "warning", "-i", path, "-f", "null", "-")
+	cmd := exec.CommandContext(ctx, ffmpeg, "-v", "warning", "-i", path, "-frames:v", "2", "-f", "null", "-")
 	var stderr bytes.Buffer
 	cmd.Stdout = &stderr
 	cmd.Stderr = &stderr
@@ -36,22 +36,22 @@ func ValidateMP4(ctx context.Context, locator Locator, path string, expectedFram
 	if err != nil {
 		return err
 	}
+	got, err := probeFrameCount(ctx, locator, path)
+	if err != nil {
+		return fmt.Errorf("ffprobe validation failed for %s: %w", path, err)
+	}
+	if got != expectedFrames {
+		return fmt.Errorf("video frame count mismatch for %s: decoded=%d expected=%d", path, got, expectedFrames)
+	}
 	out, err := exec.CommandContext(ctx, ffprobe,
-		"-v", "error", "-count_frames", "-select_streams", "v:0",
-		"-show_entries", "stream=nb_read_frames,r_frame_rate,duration",
+		"-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=r_frame_rate,duration",
 		"-of", "default=noprint_wrappers=1:nokey=0", path,
 	).Output()
 	if err != nil {
 		return fmt.Errorf("ffprobe validation failed for %s: %w", path, err)
 	}
 	fields := parseProbeFields(string(out))
-	got, err := strconv.Atoi(fields["nb_read_frames"])
-	if err != nil {
-		return fmt.Errorf("ffprobe missing nb_read_frames for %s: %w", path, err)
-	}
-	if got != expectedFrames {
-		return fmt.Errorf("video frame count mismatch for %s: decoded=%d expected=%d", path, got, expectedFrames)
-	}
 	if fps > 0 {
 		if gotFPS, err := parseFrameRate(fields["r_frame_rate"]); err == nil && gotFPS > 0 && math.Abs(gotFPS-float64(fps)) > 0.01 {
 			return fmt.Errorf("video fps mismatch for %s: got=%.3f expected=%d", path, gotFPS, fps)
@@ -76,7 +76,7 @@ func validateExactFPSTimestamps(ctx context.Context, ffprobe, path string, expec
 	const toleranceS = 1e-4
 	out, err := exec.CommandContext(ctx, ffprobe,
 		"-v", "error", "-select_streams", "v:0",
-		"-show_entries", "frame=pts_time,best_effort_timestamp_time,pkt_pts_time",
+		"-show_entries", "packet=pts_time",
 		"-of", "csv=p=0", path,
 	).Output()
 	if err != nil {
