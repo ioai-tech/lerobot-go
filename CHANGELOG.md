@@ -5,6 +5,19 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.5] - 2026-09-04
+
+### Changed
+
+- `SafeConcat` stream-copies CFR episode MP4s (`-c copy`) and only re-encodes when copy fails `ValidateMP4`, so v3 merges of high-res multi-camera datasets skip a second libx264 pass
+- `ValidateMP4` uses container packet counts and packet PTS instead of a full decode + `count_frames`
+
+## [1.2.4] - 2026-08-16
+
+### Fixed
+
+- Keep image/video keys in `stats.json` when staging remuxed or external videos
+
 ## [1.2.3] - 2026-08-17
 
 ### Fixed
@@ -43,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Episode stats modes: `sampled` and `full`
 - Video `features[].info` via ffprobe
 
-[Unreleased]: https://github.com/ioai-tech/lerobot-go/compare/v1.2.3...HEAD
+[Unreleased]: https://github.com/ioai-tech/lerobot-go/compare/v1.2.5...HEAD
+[1.2.5]: https://github.com/ioai-tech/lerobot-go/compare/v1.2.4...v1.2.5
+[1.2.4]: https://github.com/ioai-tech/lerobot-go/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/ioai-tech/lerobot-go/releases/tag/v1.2.3
 [0.2.0]: https://github.com/ioai-tech/lerobot-go/releases/tag/v0.2.0

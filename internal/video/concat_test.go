@@ -120,6 +120,51 @@ func TestSafeConcatSingleFileCopies(t *testing.T) {
 	}
 }
 
+func TestConcatCopyCFRSegmentsExactFPS(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not installed")
+	}
+
+	const (
+		fps    = 30
+		nSeg   = 3
+		nFrame = 20
+	)
+	dir := t.TempDir()
+	segments := make([]string, nSeg)
+	counts := make([]int, nSeg)
+	for i := 0; i < nSeg; i++ {
+		seg := filepath.Join(dir, "ep"+strconv.Itoa(i)+".mp4")
+		gen := exec.Command("ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+			"-f", "lavfi", "-i", "color=c=black:s=64x64:r="+strconv.Itoa(fps),
+			"-frames:v", strconv.Itoa(nFrame),
+			"-an", "-sn",
+			"-c:v", "libx264", "-preset", "ultrafast", "-crf", "30",
+			"-bf", "0", "-pix_fmt", "yuv420p",
+			"-video_track_timescale", strconv.Itoa(fps*512),
+			"-movflags", "+faststart",
+			seg,
+		)
+		if out, err := gen.CombinedOutput(); err != nil {
+			t.Fatalf("generate segment %d: %v\n%s", i, err, out)
+		}
+		segments[i] = seg
+		counts[i] = nFrame
+	}
+
+	out := filepath.Join(dir, "cat.mp4")
+	if err := concatCopy(context.Background(), "ffmpeg", segments, counts, out, fps); err != nil {
+		t.Fatalf("concatCopy: %v", err)
+	}
+	if err := ValidateMP4(context.Background(), nil, out, nSeg*nFrame, fps); err != nil {
+		t.Fatalf("ValidateMP4 after copy: %v", err)
+	}
+	assertExactFPSTimestamps(t, out, nSeg*nFrame, fps)
+}
+
 func TestCFRConcatArgsUsesConcatDemuxer(t *testing.T) {
 	args := cfrConcatArgs("ffmpeg", "/tmp/list.ffconcat", "/tmp/out.mp4", 30)
 	if countFlag(args, "-i") != 1 {
@@ -148,7 +193,7 @@ func TestWriteConcatListEscapesQuotes(t *testing.T) {
 	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	list, err := writeConcatList([]string{path})
+	list, err := writeConcatList([]string{path}, 0, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,6 +208,27 @@ func TestWriteConcatListEscapesQuotes(t *testing.T) {
 	}
 	if !strings.HasPrefix(got, "file '") || !strings.HasSuffix(got, "'\n") {
 		t.Fatalf("unexpected list format %q", got)
+	}
+}
+
+func TestWriteConcatListDuration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ep.mp4")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	list, err := writeConcatList([]string{path}, 30, []int{45})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(list) }()
+	data, err := os.ReadFile(list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if !strings.Contains(got, "duration 1.5\n") {
+		t.Fatalf("missing duration in %q", got)
 	}
 }
 

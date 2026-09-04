@@ -14,9 +14,10 @@ import (
 )
 
 // SafeConcat concatenates MP4 segments into one file with exact CFR timestamps
-// (frame i at t=i/fps). Stream-copy concat is intentionally avoided: ffmpeg
-// `-c copy` leaves PTS discontinuities across segment boundaries that break
-// LeRobot's default 1e-4 decode tolerance during training.
+// (frame i at t=i/fps). When every segment is already CFR at fps (the converter
+// episode path), concat demuxer + bitstream copy keeps PTS continuous and
+// avoids a second libx264 pass. Re-encode is the fallback if copy fails
+// ValidateMP4 (mismatched timebases, B-frames, or PTS gaps).
 func SafeConcat(ctx context.Context, locator Locator, inputs []string, output string, overwrite bool, fps int) error {
 	if len(inputs) == 0 {
 		return fmt.Errorf("no input videos")
@@ -48,7 +49,49 @@ func SafeConcat(ctx context.Context, locator Locator, inputs []string, output st
 	if fps <= 0 {
 		fps = 30
 	}
+	counts := make([]int, len(inputs))
+	frames := 0
+	counted := true
+	for i, in := range inputs {
+		n, err := probeFrameCount(ctx, locator, in)
+		if err != nil {
+			counted = false
+			break
+		}
+		counts[i] = n
+		frames += n
+	}
+	if counted && frames > 0 {
+		if err := concatCopy(ctx, ffmpeg, inputs, counts, output, fps); err == nil {
+			if err := ValidateMP4(ctx, locator, output, frames, fps); err == nil {
+				return nil
+			}
+		}
+		_ = os.Remove(output)
+	}
 	return concatCFR(ctx, ffmpeg, inputs, output, fps)
+}
+
+func concatCopy(ctx context.Context, ffmpeg string, inputs []string, counts []int, output string, fps int) error {
+	listFile, err := writeConcatList(inputs, fps, counts)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(listFile) }()
+	args := []string{
+		"-y", "-hide_banner", "-loglevel", "error",
+		"-f", "concat", "-safe", "0", "-i", listFile,
+		"-an", "-sn",
+		"-c:v", "copy",
+		"-video_track_timescale", strconv.Itoa(fps * 512),
+		"-movflags", "+faststart",
+		output,
+	}
+	cmd := exec.CommandContext(ctx, ffmpeg, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("copy concat failed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 // concatCFR re-encodes segments through the concat demuxer (one file at a time)
@@ -58,7 +101,7 @@ func SafeConcat(ctx context.Context, locator Locator, inputs []string, output st
 // filter_complex concat is avoided: it opens every input decoder at once and
 // OOMs on large v3.0 merges (hundreds of episode MP4s per 200MB shard).
 func concatCFR(ctx context.Context, ffmpeg string, inputs []string, output string, fps int) error {
-	listFile, err := writeConcatList(inputs)
+	listFile, err := writeConcatList(inputs, 0, nil)
 	if err != nil {
 		return err
 	}
@@ -72,12 +115,13 @@ func concatCFR(ctx context.Context, ffmpeg string, inputs []string, output strin
 	return nil
 }
 
-func writeConcatList(inputs []string) (string, error) {
+func writeConcatList(inputs []string, fps int, counts []int) (string, error) {
 	f, err := os.CreateTemp("", "lerobot-concat-*.ffconcat")
 	if err != nil {
 		return "", err
 	}
-	for _, in := range inputs {
+	withDur := fps > 0 && len(counts) == len(inputs)
+	for i, in := range inputs {
 		abs, err := filepath.Abs(in)
 		if err != nil {
 			_ = f.Close()
@@ -89,6 +133,15 @@ func writeConcatList(inputs []string) (string, error) {
 			_ = f.Close()
 			_ = os.Remove(f.Name())
 			return "", err
+		}
+		if withDur && counts[i] > 0 {
+			// Pin each segment's timeline to n/fps so bitstream-copy concat
+			// starts the next file on an exact i/fps boundary.
+			if _, err := fmt.Fprintf(f, "duration %g\n", float64(counts[i])/float64(fps)); err != nil {
+				_ = f.Close()
+				_ = os.Remove(f.Name())
+				return "", err
+			}
 		}
 	}
 	if err := f.Close(); err != nil {
@@ -159,6 +212,39 @@ func ffmpegMajorVersion(ffmpeg string) int {
 	}
 	ffmpegMajorOnce.Store(ffmpeg, major)
 	return major
+}
+
+func probeFrameCount(ctx context.Context, locator Locator, path string) (int, error) {
+	ffprobe, err := locator.FFprobePath()
+	if err != nil {
+		return 0, err
+	}
+	out, err := exec.CommandContext(ctx, ffprobe,
+		"-v", "error", "-select_streams", "v:0",
+		"-show_entries", "stream=nb_frames",
+		"-of", "default=noprint_wrappers=1:nokey=0", path,
+	).Output()
+	if err != nil {
+		return 0, err
+	}
+	fields := parseProbeFields(string(out))
+	if n, err := strconv.Atoi(fields["nb_frames"]); err == nil && n > 0 {
+		return n, nil
+	}
+	out, err = exec.CommandContext(ctx, ffprobe,
+		"-v", "error", "-select_streams", "v:0",
+		"-count_packets", "-show_entries", "stream=nb_read_packets",
+		"-of", "default=noprint_wrappers=1:nokey=0", path,
+	).Output()
+	if err != nil {
+		return 0, err
+	}
+	fields = parseProbeFields(string(out))
+	n, err := strconv.Atoi(fields["nb_read_packets"])
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("probe frame count for %s: %v", path, fields["nb_read_packets"])
+	}
+	return n, nil
 }
 
 func probeFPS(ctx context.Context, locator Locator, path string) (int, error) {
