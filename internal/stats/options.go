@@ -18,10 +18,6 @@ type Options struct {
 	ExternalVideo bool
 }
 
-func (o Options) normalized() Options {
-	return o
-}
-
 // skips reports whether stats for a feature of dtype are left to the caller.
 func (o Options) skips(dtype string) bool {
 	return o.ExternalVideo && dtype == "video"

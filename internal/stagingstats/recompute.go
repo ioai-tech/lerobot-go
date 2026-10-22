@@ -13,11 +13,6 @@ import (
 	"github.com/ioai-tech/lerobot-go/internal/stats"
 )
 
-// RecomputeEpisodeStats rebuilds episode stats from staging parquet + image paths.
-func RecomputeEpisodeStats(ctx context.Context, stagingDir string, ep manifest.Episode, features map[string]meta.FeatureSpec, opts stats.Options) (stats.EpisodeStats, error) {
-	return RecomputeEpisodeStatsWithOptions(ctx, stagingDir, ep, features, opts, nil)
-}
-
 // RecomputeEpisodeStatsWithOptions rebuilds stats using staging parquet values after
 // applying the same global index/task remapping used during merge.
 func RecomputeEpisodeStatsWithOptions(ctx context.Context, stagingDir string, ep manifest.Episode, features map[string]meta.FeatureSpec, opts stats.Options, appendOpts *parquetx.AppendEpisodeOptions) (stats.EpisodeStats, error) {

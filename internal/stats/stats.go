@@ -53,7 +53,6 @@ func ComputeEpisodeStatsErr(in EpisodeInput, features map[string]FeatureDesc, op
 }
 
 func computeEpisodeStats(in EpisodeInput, features map[string]FeatureDesc, opts Options) (EpisodeStats, error) {
-	opts = opts.normalized()
 	out := make(EpisodeStats)
 	for key, spec := range features {
 		switch spec.DType {
