@@ -21,6 +21,10 @@ func requiredVideoKeys(features map[string]meta.FeatureSpec) []string {
 
 // ValidateOutputIntegrity checks merged dataset has data parquet and video files.
 func ValidateOutputIntegrity(outputRoot string, features map[string]meta.FeatureSpec) error {
+	return validateOutputIntegrity(outputRoot, features, stats.Options{})
+}
+
+func validateOutputIntegrity(outputRoot string, features map[string]meta.FeatureSpec, opts stats.Options) error {
 	matches, err := filepath.Glob(filepath.Join(outputRoot, "data", "chunk-*", "file-*.parquet"))
 	if err != nil {
 		return err
@@ -37,7 +41,7 @@ func ValidateOutputIntegrity(outputRoot string, features map[string]meta.Feature
 			return fmt.Errorf("data parquet empty: %s", p)
 		}
 	}
-	if err := stats.CheckStatsFileVisualCoverage(filepath.Join(outputRoot, meta.StatsPath), featureDescs(features)); err != nil {
+	if err := stats.CheckStatsFileVisualCoverage(filepath.Join(outputRoot, meta.StatsPath), opts.OwnedFeatures(featureDescs(features))); err != nil {
 		return err
 	}
 	if !hasVideoFeatures(features) {

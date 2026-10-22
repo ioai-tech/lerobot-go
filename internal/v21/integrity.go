@@ -21,6 +21,10 @@ func requiredVideoKeys(features map[string]meta.FeatureSpec) []string {
 
 // ValidateOutputIntegrity checks merged v2.1 dataset has per-episode parquet and video files.
 func ValidateOutputIntegrity(outputRoot string, info meta.DatasetInfo, features map[string]meta.FeatureSpec) error {
+	return validateOutputIntegrity(outputRoot, info, features, stats.Options{})
+}
+
+func validateOutputIntegrity(outputRoot string, info meta.DatasetInfo, features map[string]meta.FeatureSpec, opts stats.Options) error {
 	if info.TotalEpisodes <= 0 {
 		matches, err := filepath.Glob(filepath.Join(outputRoot, meta.DataDir, "*", "episode_*.parquet"))
 		if err != nil {
@@ -48,7 +52,7 @@ func ValidateOutputIntegrity(outputRoot string, info meta.DatasetInfo, features 
 			}
 		}
 	}
-	if err := stats.CheckStatsFileVisualCoverage(filepath.Join(outputRoot, meta.StatsPath), featureDescs(features)); err != nil {
+	if err := stats.CheckStatsFileVisualCoverage(filepath.Join(outputRoot, meta.StatsPath), opts.OwnedFeatures(featureDescs(features))); err != nil {
 		return err
 	}
 	if !hasVideoFeatures(features) {

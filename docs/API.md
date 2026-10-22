@@ -56,6 +56,7 @@ features := map[string]lerobot.FeatureSpec{
 
 - `lerobot.StatsSampled` — official subsampling (default)
 - `lerobot.StatsFull` — scan every frame for image/video stats
+- `lerobot.StatsExternalVideo` — like `StatsSampled`, but video feature stats are left to the caller: staging and `Merge` do not decode episode MP4s for stats. Write the video stats into `meta/stats.json` and the episode metadata after `Merge`, then run `ValidateOutputIntegrity`
 
 Set on `StagingConfig`, `MergeConfig`, and `CreateConfig`.
 

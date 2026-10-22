@@ -43,6 +43,7 @@ features := map[string]lerobot.FeatureSpec{
 
 - `lerobot.StatsSampled` — 官方抽样（默认）
 - `lerobot.StatsFull` — 扫描每一帧
+- `lerobot.StatsExternalVideo` — 与 `StatsSampled` 相同，但视频特征的统计交给调用方：staging 与 `Merge` 不再为统计解码 episode MP4。调用方需在 `Merge` 之后把视频统计写入 `meta/stats.json` 和 episode 元数据，再运行 `ValidateOutputIntegrity`
 
 用于 `StagingConfig`、`MergeConfig`、`CreateConfig`。
 

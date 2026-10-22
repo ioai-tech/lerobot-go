@@ -13,7 +13,7 @@ func OverlayFromVideos(existing EpisodeStats, files map[string]string, length in
 	need := make(map[string]string, len(files))
 	for key, path := range files {
 		spec, ok := features[key]
-		if !ok || (spec.DType != "image" && spec.DType != "video") {
+		if !ok || (spec.DType != "image" && spec.DType != "video") || opts.skips(spec.DType) {
 			continue
 		}
 		if existing[key] != nil {

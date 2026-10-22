@@ -140,7 +140,7 @@ func Merge(ctx context.Context, cfg MergeConfig) error {
 		return err
 	}
 	agg := stats.AggregateStats(st.allEpisodeStats)
-	if err := stats.CheckAggregateVisualCoverage(agg, featureDescs(cfg.Features)); err != nil {
+	if err := stats.CheckAggregateVisualCoverage(agg, cfg.Stats.OwnedFeatures(featureDescs(cfg.Features))); err != nil {
 		return err
 	}
 	if err := meta.WriteStats(cfg.OutputRoot, stats.ToJSONSerializable(agg)); err != nil {
@@ -150,7 +150,7 @@ func Merge(ctx context.Context, cfg MergeConfig) error {
 	if err := meta.UpdateVideoFeaturesInfo(ctx, &st.info, cfg.OutputRoot, cfg.Locator); err != nil {
 		return err
 	}
-	if err := ValidateOutputIntegrity(cfg.OutputRoot, cfg.Features); err != nil {
+	if err := validateOutputIntegrity(cfg.OutputRoot, cfg.Features, cfg.Stats); err != nil {
 		return fmt.Errorf("merged output integrity: %w", err)
 	}
 	return meta.WriteInfo(cfg.OutputRoot, st.info)

@@ -53,13 +53,15 @@ func ComputeEpisodeStatsErr(in EpisodeInput, features map[string]FeatureDesc, op
 }
 
 func computeEpisodeStats(in EpisodeInput, features map[string]FeatureDesc, opts Options) (EpisodeStats, error) {
-	opts = opts.normalized()
 	out := make(EpisodeStats)
 	for key, spec := range features {
 		switch spec.DType {
 		case "string", "language":
 			continue
 		case "image", "video":
+			if opts.skips(spec.DType) {
+				continue
+			}
 			paths := in.FramePaths[key]
 			frames := in.FrameBytes[key]
 			videoPath := in.VideoFiles[key]
