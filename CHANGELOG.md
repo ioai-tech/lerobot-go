@@ -5,11 +5,15 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.6] - 2026-10-22
 
 ### Added
 
 - `StatsExternalVideo` stats mode: staging and `Merge` skip decoding episode MP4s for video feature stats and stop requiring video keys in their coverage checks, for callers that compute video stats themselves (each mode otherwise decodes every high-res episode video twice)
+
+### Changed
+
+- Requires Go 1.26.10 (stdlib, `x/net` and `grpc` security updates)
 
 ## [1.2.5] - 2026-09-04
 
