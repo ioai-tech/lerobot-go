@@ -146,3 +146,91 @@ func keysOf(m map[string]map[string]any) []string {
 	}
 	return out
 }
+
+func TestMergeExternalVideoStatsLeftToCaller(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg not installed")
+	}
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		t.Skip("ffprobe not installed")
+	}
+
+	const (
+		key    = "observation.images.camera_high"
+		frames = 8
+		fps    = 10
+	)
+	dir := t.TempDir()
+	mp4 := filepath.Join(dir, "src.mp4")
+	writeSolidMP4(t, mp4, "red", frames, fps)
+
+	features := map[string]meta.FeatureSpec{
+		"observation.state": {DType: "float32", Shape: []int{2}},
+		"action":            {DType: "float32", Shape: []int{2}},
+		key:                 {DType: "video", Shape: []int{64, 64, 3}},
+	}
+	opts := stats.Options{Mode: stats.ModeSampled, ExternalVideo: true}
+	ctx := context.Background()
+	w, err := v30.NewStagingWriter(v30.StagingConfig{
+		Dir:            filepath.Join(dir, "ep_000000"),
+		Episode:        0,
+		FPS:            fps,
+		Features:       features,
+		UseVideos:      true,
+		ExternalVideos: true,
+		Stats:          opts,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < frames; i++ {
+		if err := w.AddFrame(ctx, map[string]any{
+			"task":              "pick",
+			"observation.state": []float32{float32(i), 0},
+			"action":            []float32{0.1, 0.2},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := w.SetVideoFiles(ctx, map[string]string{key: mp4}); err != nil {
+		t.Fatal(err)
+	}
+	ep, err := w.SaveEpisode(ctx)
+	if err != nil {
+		t.Fatalf("SaveEpisode: %v", err)
+	}
+	if ep.Stats[key] != nil {
+		t.Fatal("external video stats must not be computed during staging")
+	}
+	if ep.Stats["observation.state"] == nil {
+		t.Fatal("numeric stats must still be computed")
+	}
+
+	out := filepath.Join(dir, "dataset")
+	if err := v30.Merge(ctx, v30.MergeConfig{
+		StagingRoot: dir,
+		OutputRoot:  out,
+		FPS:         fps,
+		Features:    features,
+		Stats:       opts,
+	}); err != nil {
+		t.Fatalf("Merge: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(out, meta.StatsPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var statsJSON map[string]map[string]any
+	if err := json.Unmarshal(raw, &statsJSON); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := statsJSON[key]; ok {
+		t.Fatalf("stats.json must leave %s to the caller", key)
+	}
+	if _, ok := statsJSON["observation.state"]; !ok {
+		t.Fatalf("stats.json missing numeric stats; keys=%v", keysOf(statsJSON))
+	}
+	if err := v30.ValidateOutputIntegrity(out, features); err == nil {
+		t.Fatal("full integrity check must still require video stats the caller has not written")
+	}
+}

@@ -104,7 +104,7 @@ func Merge(ctx context.Context, cfg MergeConfig) error {
 		return err
 	}
 	agg := stats.AggregateStats(allStats)
-	if err := stats.CheckAggregateVisualCoverage(agg, featureDescs(cfg.Features)); err != nil {
+	if err := stats.CheckAggregateVisualCoverage(agg, cfg.Stats.OwnedFeatures(featureDescs(cfg.Features))); err != nil {
 		return err
 	}
 	if err := meta.WriteStats(cfg.OutputRoot, stats.ToJSONSerializable(agg)); err != nil {
@@ -119,7 +119,7 @@ func Merge(ctx context.Context, cfg MergeConfig) error {
 	if err := meta.WriteInfo(cfg.OutputRoot, info); err != nil {
 		return err
 	}
-	if err := ValidateOutputIntegrity(cfg.OutputRoot, info, cfg.Features); err != nil {
+	if err := validateOutputIntegrity(cfg.OutputRoot, info, cfg.Features, cfg.Stats); err != nil {
 		return fmt.Errorf("merged output integrity: %w", err)
 	}
 	return nil

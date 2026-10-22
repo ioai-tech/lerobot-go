@@ -39,13 +39,23 @@ const (
 	StatsSampled StatsMode = iota
 	// StatsFull scans every frame when computing image/video stats.
 	StatsFull
+	// StatsExternalVideo samples image stats like StatsSampled but computes no
+	// stats for video features: staging and Merge skip decoding episode MP4s,
+	// and Merge's coverage checks stop requiring video keys. The caller must
+	// write video stats into meta/stats.json and the episode metadata after
+	// Merge, then run ValidateOutputIntegrity.
+	StatsExternalVideo
 )
 
 func (m StatsMode) toOptions() stats.Options {
-	if m == StatsFull {
+	switch m {
+	case StatsFull:
 		return stats.Options{Mode: stats.ModeFull}
+	case StatsExternalVideo:
+		return stats.Options{Mode: stats.ModeSampled, ExternalVideo: true}
+	default:
+		return stats.Options{Mode: stats.ModeSampled}
 	}
-	return stats.Options{Mode: stats.ModeSampled}
 }
 
 // FFmpegConfig selects ffmpeg and ffprobe binaries (empty paths use PATH lookup).

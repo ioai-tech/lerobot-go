@@ -60,6 +60,9 @@ func computeEpisodeStats(in EpisodeInput, features map[string]FeatureDesc, opts 
 		case "string", "language":
 			continue
 		case "image", "video":
+			if opts.skips(spec.DType) {
+				continue
+			}
 			paths := in.FramePaths[key]
 			frames := in.FrameBytes[key]
 			videoPath := in.VideoFiles[key]
